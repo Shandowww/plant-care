@@ -1,0 +1,9 @@
+app/frontend/node_modules
+app/frontend/dist
+app/frontend/.vite
+tests
+*.db
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache

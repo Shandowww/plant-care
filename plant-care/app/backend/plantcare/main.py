@@ -1,0 +1,688 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Annotated
+
+import structlog
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from . import __version__
+from .auth import AuthService, Identity, ensure_ingress
+from .config import Settings, get_settings
+from .database import Database
+from .home_assistant import HomeAssistantClient, simulator_entities
+from .models import (
+    ActionStatus,
+    AppSetting,
+    AuditEvent,
+    CareAction,
+    Plant,
+    PlantEntityMapping,
+    Reading,
+)
+from .schemas import (
+    ActionHistoryItem,
+    ActionHistoryResponse,
+    ActionListResponse,
+    ActionSnoozeRequest,
+    ActionSummary,
+    DashboardSummary,
+    HealthResponse,
+    HomeAssistantEntityListResponse,
+    HomeAssistantSyncResponse,
+    LoginRequest,
+    PasswordRequest,
+    PlantCreateRequest,
+    PlantEntityMappingSummary,
+    PlantEntityMappingUpdate,
+    PlantListResponse,
+    PlantSummary,
+    PlantUpdateRequest,
+    ReadingListResponse,
+    ReadingSummary,
+    SessionResponse,
+)
+from .simulator import seed_simulator
+from .sync import HomeAssistantStateSource, SyncResult, sync_mapped_readings
+
+logger = structlog.get_logger()
+
+AUTO_MANAGED_ACTION_TYPES = {"low_moisture", "sensor_issue"}
+
+
+def create_app(
+    settings: Settings | None = None,
+    home_assistant_client: HomeAssistantStateSource | None = None,
+) -> FastAPI:
+    app_settings = settings or get_settings()
+    app_settings.data_dir.mkdir(parents=True, exist_ok=True)
+    database = Database(app_settings)
+    auth = AuthService(app_settings)
+    home_assistant = home_assistant_client or HomeAssistantClient(app_settings.supervisor_token)
+    sync_lock = asyncio.Lock()
+
+    async def sync_once() -> SyncResult:
+        async with sync_lock, database.session_factory() as sync_session:
+            return await sync_mapped_readings(sync_session, home_assistant)
+
+    async def sync_loop() -> None:
+        while True:
+            try:
+                result = await sync_once()
+                logger.debug(
+                    "home_assistant_sync_complete",
+                    plants_checked=result.plants_checked,
+                    readings_added=result.readings_added,
+                    invalid_readings=result.invalid_readings,
+                    missing_entities=result.missing_entities,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("home_assistant_sync_failed", error=type(exc).__name__)
+            await asyncio.sleep(app_settings.sync_interval_seconds)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        sync_task: asyncio.Task[None] | None = None
+        await database.initialize()
+        if app_settings.simulator_enabled:
+            async with database.session_factory() as simulator_session:
+                await seed_simulator(simulator_session)
+        logger.info(
+            "application_ready", version=__version__, simulator=app_settings.simulator_enabled
+        )
+        if not app_settings.simulator_enabled and app_settings.supervisor_token:
+            sync_task = asyncio.create_task(sync_loop(), name="home-assistant-sync")
+        try:
+            yield
+        finally:
+            if sync_task is not None:
+                sync_task.cancel()
+                try:
+                    await sync_task
+                except asyncio.CancelledError:
+                    pass
+            await database.close()
+
+    application = FastAPI(
+        title="Plant Care Dashboard API",
+        version=__version__,
+        docs_url="/api/docs" if app_settings.environment != "production" else None,
+        redoc_url=None,
+        lifespan=lifespan,
+    )
+    application.state.database = database
+    application.state.auth = auth
+    application.state.settings = app_settings
+    application.state.home_assistant = home_assistant
+
+    async def get_session() -> AsyncIterator[AsyncSession]:
+        async for session in database.session():
+            yield session
+
+    Session = Annotated[AsyncSession, Depends(get_session)]
+
+    async def get_identity(request: Request, session: Session) -> Identity:
+        identity = await auth.identity(request, session)
+        auth.require_csrf(request, identity)
+        return identity
+
+    CurrentIdentity = Annotated[Identity, Depends(get_identity)]
+
+    @application.get("/api/v1/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return HealthResponse(
+            status="ready",
+            version=__version__,
+            database="ready",
+            simulator=app_settings.simulator_enabled,
+        )
+
+    @application.get("/api/v1/auth/session", response_model=SessionResponse)
+    async def auth_session(identity: CurrentIdentity) -> SessionResponse:
+        return SessionResponse(
+            authenticated=True,
+            surface=identity.surface,
+            actor=identity.actor,
+        )
+
+    @application.post("/api/v1/auth/login", response_model=SessionResponse)
+    async def login(
+        payload: LoginRequest, request: Request, response: Response, session: Session
+    ) -> SessionResponse:
+        if app_settings.auth_mode == "disabled" and not app_settings.environment == "production":
+            return SessionResponse(authenticated=True, surface="development", actor="Developer")
+        if auth.surface(request) != "lan":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        key = auth.rate_limit_key(request)
+        auth.check_login_delay(key)
+        if not await auth.verify_password(session, payload.password):
+            auth.record_failure(key)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+        auth.failures.pop(key, None)
+        csrf = auth.create_session(response, await auth.session_version(session))
+        return SessionResponse(
+            authenticated=True, surface="lan", actor="Household (LAN)", csrf_token=csrf
+        )
+
+    @application.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+    async def logout(response: Response) -> None:
+        auth.clear_session(response)
+
+    @application.post("/api/v1/auth/password", status_code=status.HTTP_204_NO_CONTENT)
+    async def set_password(
+        payload: PasswordRequest, identity: CurrentIdentity, session: Session
+    ) -> None:
+        ensure_ingress(identity)
+        await auth.set_password(session, payload.password, identity.actor)
+
+    @application.post("/api/v1/auth/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+    async def logout_all(identity: CurrentIdentity, session: Session) -> None:
+        ensure_ingress(identity)
+        setting = await session.scalar(
+            select(AppSetting).where(AppSetting.key == "auth.session_version")
+        )
+        if setting:
+            setting.typed_value = int(setting.typed_value) + 1
+        else:
+            session.add(AppSetting(key="auth.session_version", typed_value=2))
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="lan_sessions_revoked",
+                object_type="authentication",
+            )
+        )
+        await session.commit()
+
+    @application.get("/api/v1/plants", response_model=PlantListResponse)
+    async def list_plants(identity: CurrentIdentity, session: Session) -> PlantListResponse:
+        del identity
+        action_subquery = (
+            select(CareAction.plant_id, func.min(CareAction.title).label("action_title"))
+            .where(CareAction.status.in_((ActionStatus.OPEN.value, ActionStatus.SNOOZED.value)))
+            .group_by(CareAction.plant_id)
+            .subquery()
+        )
+        rows = (
+            await session.execute(
+                select(Plant, action_subquery.c.action_title)
+                .options(selectinload(Plant.entity_mapping))
+                .outerjoin(action_subquery, action_subquery.c.plant_id == Plant.id)
+                .where(Plant.active.is_(True))
+                .order_by(
+                    case(
+                        (Plant.state == "overdue", 0),
+                        (Plant.state == "action_needed", 1),
+                        (Plant.state == "sensor_issue", 2),
+                        (Plant.state == "watch", 3),
+                        else_=4,
+                    ),
+                    Plant.display_name,
+                )
+            )
+        ).all()
+        plants = []
+        for plant, action_title in rows:
+            effective_state = plant.state
+            if (
+                action_title is None
+                and plant.state in {"action_needed", "overdue"}
+                and plant.moisture_status != "low"
+            ):
+                effective_state = "good"
+            plants.append(
+                PlantSummary.model_validate(plant).model_copy(
+                    update={
+                        "highest_priority_action": action_title,
+                        "state": effective_state,
+                    }
+                )
+            )
+        return PlantListResponse(
+            plants=plants,
+            summary=DashboardSummary(
+                total=len(plants),
+                action_needed=sum(plant.state == "action_needed" for plant in plants),
+                overdue=sum(plant.state == "overdue" for plant in plants),
+                sensor_issues=sum(plant.state == "sensor_issue" for plant in plants),
+            ),
+        )
+
+    @application.get(
+        "/api/v1/home-assistant/entities",
+        response_model=HomeAssistantEntityListResponse,
+    )
+    async def list_home_assistant_entities(
+        identity: CurrentIdentity,
+    ) -> HomeAssistantEntityListResponse:
+        del identity
+        if app_settings.simulator_enabled:
+            return HomeAssistantEntityListResponse(
+                source="simulator", entities=simulator_entities()
+            )
+        try:
+            entities = await home_assistant.list_entities()
+        except Exception as exc:
+            logger.warning("home_assistant_entity_discovery_failed", error=type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Home Assistant entities could not be loaded",
+            ) from exc
+        return HomeAssistantEntityListResponse(source="home_assistant", entities=entities)
+
+    @application.post(
+        "/api/v1/home-assistant/sync",
+        response_model=HomeAssistantSyncResponse,
+    )
+    async def synchronize_home_assistant(
+        identity: CurrentIdentity,
+    ) -> HomeAssistantSyncResponse:
+        del identity
+        if app_settings.simulator_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        try:
+            result = await sync_once()
+        except Exception as exc:
+            logger.warning("home_assistant_manual_sync_failed", error=type(exc).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Home Assistant readings could not be synchronized",
+            ) from exc
+        return HomeAssistantSyncResponse(**result.__dict__)
+
+    @application.patch(
+        "/api/v1/plants/{plant_id}/entity-mapping",
+        response_model=PlantEntityMappingSummary,
+    )
+    async def update_plant_entity_mapping(
+        plant_id: str,
+        payload: PlantEntityMappingUpdate,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantEntityMappingSummary:
+        plant = await session.scalar(
+            select(Plant)
+            .options(selectinload(Plant.entity_mapping))
+            .where(Plant.id == plant_id, Plant.active.is_(True))
+        )
+        if plant is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        old_values = (
+            PlantEntityMappingSummary.model_validate(plant.entity_mapping).model_dump()
+            if plant.entity_mapping
+            else PlantEntityMappingSummary().model_dump()
+        )
+        mapping = plant.entity_mapping or PlantEntityMapping(plant_id=plant.id)
+        changes = payload.model_dump()
+        for field, value in changes.items():
+            setattr(mapping, field, value)
+        if plant.entity_mapping is None:
+            plant.entity_mapping = mapping
+            session.add(mapping)
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_entity_mapping_updated",
+                object_type="plant",
+                object_id=plant.id,
+                old_json=old_values,
+                new_json=changes,
+            )
+        )
+        await session.commit()
+        await session.refresh(mapping)
+        return PlantEntityMappingSummary.model_validate(mapping)
+
+    @application.post(
+        "/api/v1/plants", response_model=PlantSummary, status_code=status.HTTP_201_CREATED
+    )
+    async def create_plant(
+        payload: PlantCreateRequest, identity: CurrentIdentity, session: Session
+    ) -> PlantSummary:
+        plant = Plant(
+            display_name=payload.display_name.strip(),
+            location=payload.location.strip(),
+            common_name=payload.common_name.strip(),
+            scientific_name=(payload.scientific_name or "").strip() or None,
+            environment_type=payload.environment_type,
+            state="sensor_issue",
+            moisture_status="unknown",
+            temperature_status="unknown",
+        )
+        session.add(plant)
+        await session.flush()
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_created",
+                object_type="plant",
+                object_id=plant.id,
+                new_json={"display_name": plant.display_name, "location": plant.location},
+            )
+        )
+        await session.commit()
+        await session.refresh(plant)
+        return PlantSummary.model_validate(plant)
+
+    @application.patch("/api/v1/plants/{plant_id}", response_model=PlantSummary)
+    async def update_plant(
+        plant_id: str,
+        payload: PlantUpdateRequest,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantSummary:
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        old_values = {
+            "display_name": plant.display_name,
+            "location": plant.location,
+            "common_name": plant.common_name,
+            "scientific_name": plant.scientific_name,
+            "environment_type": plant.environment_type,
+        }
+        changes = payload.model_dump(exclude_unset=True)
+        for field, value in changes.items():
+            if isinstance(value, str):
+                value = value.strip() or None
+            setattr(plant, field, value)
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_updated",
+                object_type="plant",
+                object_id=plant.id,
+                old_json=old_values,
+                new_json=changes,
+            )
+        )
+        await session.commit()
+        await session.refresh(plant)
+        return PlantSummary.model_validate(plant)
+
+    @application.delete("/api/v1/plants/{plant_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def archive_plant(plant_id: str, identity: CurrentIdentity, session: Session) -> Response:
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        plant.active = False
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_archived",
+                object_type="plant",
+                object_id=plant.id,
+                old_json={"active": True},
+                new_json={"active": False},
+            )
+        )
+        await session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.get(
+        "/api/v1/plants/{plant_id}/readings",
+        response_model=ReadingListResponse,
+    )
+    async def plant_readings(
+        plant_id: str,
+        identity: CurrentIdentity,
+        session: Session,
+        metric: str | None = Query(
+            default=None, pattern="^(moisture|temperature|battery|illuminance)$"
+        ),
+        limit: int = Query(default=200, ge=1, le=2000),
+    ) -> ReadingListResponse:
+        del identity
+        plant_exists = await session.scalar(
+            select(Plant.id).where(Plant.id == plant_id, Plant.active.is_(True))
+        )
+        if plant_exists is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        statement = select(Reading).where(Reading.plant_id == plant_id)
+        if metric:
+            statement = statement.where(Reading.metric == metric)
+        readings = (
+            await session.scalars(statement.order_by(Reading.observed_at.desc()).limit(limit))
+        ).all()
+        return ReadingListResponse(
+            readings=[ReadingSummary.model_validate(reading) for reading in readings]
+        )
+
+    @application.post(
+        "/api/v1/simulator/plants/{plant_id}/confirmed-watering",
+        response_model=PlantSummary,
+    )
+    async def simulate_confirmed_watering(
+        plant_id: str, identity: CurrentIdentity, session: Session
+    ) -> PlantSummary:
+        if not app_settings.simulator_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        baseline = plant.moisture or 0
+        plant.moisture = min(100, max(40, baseline + 12))
+        plant.moisture_status = "normal"
+        plant.state = "good"
+        plant.last_reading_at = datetime.now(UTC)
+        low_actions = (
+            await session.scalars(
+                select(CareAction)
+                .where(CareAction.plant_id == plant.id)
+                .where(CareAction.type == "low_moisture")
+                .where(CareAction.status.in_(["open", "snoozed"]))
+            )
+        ).all()
+        for action in low_actions:
+            old_status = action.status
+            action.status = ActionStatus.COMPLETED.value
+            action.completed_at = datetime.now(UTC)
+            action.completed_by = "Automatic moisture recovery"
+            action.snoozed_until = None
+            session.add(
+                AuditEvent(
+                    actor="Simulator",
+                    event_type="action_auto_completed",
+                    object_type="care_action",
+                    object_id=action.id,
+                    old_json={"status": old_status, "moisture": baseline},
+                    new_json={"status": action.status, "moisture": plant.moisture},
+                )
+            )
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="simulator_watering_confirmed",
+                object_type="plant",
+                object_id=plant.id,
+                old_json={"moisture": baseline},
+                new_json={"moisture": plant.moisture},
+            )
+        )
+        await session.commit()
+        await session.refresh(plant)
+        return PlantSummary.model_validate(plant)
+
+    @application.get("/api/v1/actions", response_model=ActionListResponse)
+    async def list_actions(identity: CurrentIdentity, session: Session) -> ActionListResponse:
+        del identity
+        actions = (
+            await session.scalars(
+                select(CareAction)
+                .join(Plant, Plant.id == CareAction.plant_id)
+                .where(CareAction.status.in_(["open", "snoozed", "completed"]))
+                .where(Plant.active.is_(True))
+                .order_by(CareAction.status, CareAction.priority, CareAction.due_at)
+            )
+        ).all()
+        return ActionListResponse(
+            actions=[ActionSummary.model_validate(action) for action in actions]
+        )
+
+    @application.get("/api/v1/actions/history", response_model=ActionHistoryResponse)
+    async def action_history(identity: CurrentIdentity, session: Session) -> ActionHistoryResponse:
+        del identity
+        events = (
+            await session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.object_type == "care_action")
+                .order_by(AuditEvent.occurred_at.desc())
+                .limit(100)
+            )
+        ).all()
+        return ActionHistoryResponse(
+            events=[
+                ActionHistoryItem(
+                    id=event.id,
+                    action_id=event.object_id or "",
+                    actor=event.actor,
+                    event_type=event.event_type,
+                    old_json=event.old_json,
+                    new_json=event.new_json,
+                    occurred_at=event.occurred_at,
+                )
+                for event in events
+            ]
+        )
+
+    async def action_or_404(action_id: str, session: AsyncSession) -> CareAction:
+        action = await session.get(CareAction, action_id)
+        if action is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+        return action
+
+    @application.post("/api/v1/actions/{action_id}/snooze", response_model=ActionSummary)
+    async def snooze_action(
+        action_id: str,
+        payload: ActionSnoozeRequest,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> ActionSummary:
+        action = await action_or_404(action_id, session)
+        old_status = action.status
+        action.status = ActionStatus.SNOOZED.value
+        action.snoozed_until = datetime.now(UTC) + timedelta(hours=payload.hours)
+        action.completed_at = None
+        action.completed_by = None
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="action_snoozed",
+                object_type="care_action",
+                object_id=action.id,
+                old_json={"status": old_status},
+                new_json={
+                    "status": action.status,
+                    "snoozed_until": action.snoozed_until.isoformat(),
+                },
+            )
+        )
+        await session.commit()
+        await session.refresh(action)
+        return ActionSummary.model_validate(action)
+
+    @application.post("/api/v1/actions/{action_id}/complete", response_model=ActionSummary)
+    async def complete_action(
+        action_id: str, identity: CurrentIdentity, session: Session
+    ) -> ActionSummary:
+        action = await action_or_404(action_id, session)
+        if action.type in AUTO_MANAGED_ACTION_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This action is managed by sensor recovery and cannot be marked done "
+                    "manually. Snooze it, or resolve the underlying sensor condition."
+                ),
+            )
+        if action.status != ActionStatus.COMPLETED.value:
+            old_status = action.status
+            action.status = ActionStatus.COMPLETED.value
+            action.completed_at = datetime.now(UTC)
+            action.completed_by = identity.actor
+            action.snoozed_until = None
+            session.add(
+                AuditEvent(
+                    actor=identity.actor,
+                    event_type="action_completed",
+                    object_type="care_action",
+                    object_id=action.id,
+                    old_json={"status": old_status},
+                    new_json={"status": action.status},
+                )
+            )
+            plant = await session.get(Plant, action.plant_id)
+            if plant and plant.state in {"action_needed", "overdue"}:
+                active_count = await session.scalar(
+                    select(func.count())
+                    .select_from(CareAction)
+                    .where(
+                        CareAction.plant_id == action.plant_id,
+                        CareAction.id != action.id,
+                        CareAction.status.in_(
+                            (ActionStatus.OPEN.value, ActionStatus.SNOOZED.value)
+                        ),
+                    )
+                )
+                if not active_count:
+                    plant.state = "good"
+            await session.commit()
+            await session.refresh(action)
+        return ActionSummary.model_validate(action)
+
+    @application.post("/api/v1/actions/{action_id}/undo", response_model=ActionSummary)
+    async def undo_action(
+        action_id: str, identity: CurrentIdentity, session: Session
+    ) -> ActionSummary:
+        action = await action_or_404(action_id, session)
+        old_status = action.status
+        action.status = ActionStatus.OPEN.value
+        action.completed_at = None
+        action.completed_by = None
+        action.snoozed_until = None
+        plant = await session.get(Plant, action.plant_id)
+        if plant and action.type not in AUTO_MANAGED_ACTION_TYPES:
+            due_at = action.due_at
+            if due_at and due_at.tzinfo is None:
+                due_at = due_at.replace(tzinfo=UTC)
+            plant.state = "overdue" if due_at and due_at < datetime.now(UTC) else "action_needed"
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="action_reopened",
+                object_type="care_action",
+                object_id=action.id,
+                old_json={"status": old_status},
+                new_json={"status": action.status},
+            )
+        )
+        await session.commit()
+        await session.refresh(action)
+        return ActionSummary.model_validate(action)
+
+    static_dir = Path(app_settings.static_dir)
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        application.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    images_dir = static_dir / "images"
+    if images_dir.is_dir():
+        application.mount("/images", StaticFiles(directory=images_dir), name="images")
+
+    @application.get("/{path:path}", include_in_schema=False)
+    async def spa(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        index = static_dir / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Frontend not built")
+        return FileResponse(index)
+
+    return application

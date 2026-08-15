@@ -1,0 +1,6 @@
+configuration:
+  log_level:
+    name: Log level
+    description: Controls application log detail. Secrets and photo content are always excluded.
+network:
+  8098/tcp: LAN-only dashboard port. Never forward this port to the internet.
