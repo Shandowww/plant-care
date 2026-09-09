@@ -6,7 +6,7 @@ export interface PlantImage {
   credit: string;
 }
 
-const base = "/images/plants/";
+const base = "images/plants/";
 
 const images: Record<string, PlantImage> = {
   "dracaena trifasciata": {

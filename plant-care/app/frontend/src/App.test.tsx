@@ -117,9 +117,18 @@ describe("portal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
     await waitFor(() => expect(screen.getByText("Golden Pothos sensor mapping was updated.")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/plants/plant-1/entity-mapping",
+      "api/v1/plants/plant-1/entity-mapping",
       expect.objectContaining({ method: "PATCH" }),
     );
+  });
+
+  it("uses ingress-relative API paths", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    await screen.findByText("Golden Pothos");
+    expect(
+      fetchMock.mock.calls.every(([input]) => !String(input).startsWith("/")),
+    ).toBe(true);
   });
 
   it("edits an existing plant", async () => {
@@ -165,7 +174,8 @@ describe("portal", () => {
   it("shows a disconnected state", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 503 }));
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Dashboard disconnected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("Dashboard disconnected")).toHaveLength(2));
+    expect(screen.getByText("API unavailable")).toBeInTheDocument();
   });
 
   it("shows the shared-password screen when LAN authentication is required", async () => {

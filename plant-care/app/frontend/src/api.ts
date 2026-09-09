@@ -6,8 +6,12 @@ export class ApiError extends Error {
   }
 }
 
+function ingressRelative(path: string): string {
+  return path.replace(/^\/+/, "");
+}
+
 export async function getPlants(signal?: AbortSignal): Promise<PlantResponse> {
-  const response = await fetch("/api/v1/plants", {
+  const response = await fetch(ingressRelative("/api/v1/plants"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,
@@ -19,7 +23,7 @@ export async function getPlants(signal?: AbortSignal): Promise<PlantResponse> {
 }
 
 export async function login(password: string): Promise<void> {
-  const response = await fetch("/api/v1/auth/login", {
+  const response = await fetch(ingressRelative("/api/v1/auth/login"), {
     method: "POST",
     credentials: "same-origin",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
@@ -40,7 +44,7 @@ function csrfToken(): string | undefined {
 
 async function jsonMutation<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   const csrf = csrfToken();
-  const response = await fetch(path, {
+  const response = await fetch(ingressRelative(path), {
     method,
     credentials: "same-origin",
     headers: {
@@ -55,7 +59,7 @@ async function jsonMutation<T>(path: string, body?: unknown, method = "POST"): P
 }
 
 export async function getActions(signal?: AbortSignal): Promise<ActionResponse> {
-  const response = await fetch("/api/v1/actions", {
+  const response = await fetch(ingressRelative("/api/v1/actions"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,
@@ -73,7 +77,7 @@ export function updatePlant(plantId: string, payload: PlantCreate): Promise<Plan
 }
 
 export async function getHomeAssistantEntities(signal?: AbortSignal): Promise<HomeAssistantEntityResponse> {
-  const response = await fetch("/api/v1/home-assistant/entities", {
+  const response = await fetch(ingressRelative("/api/v1/home-assistant/entities"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,
@@ -92,7 +96,7 @@ export function syncHomeAssistant(): Promise<void> {
 
 export async function archivePlant(plantId: string): Promise<void> {
   const csrf = csrfToken();
-  const response = await fetch(`/api/v1/plants/${plantId}`, {
+  const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}`), {
     method: "DELETE",
     credentials: "same-origin",
     headers: csrf ? { "X-CSRF-Token": csrf } : {},
@@ -117,7 +121,7 @@ export function simulateConfirmedWatering(plantId: string): Promise<Plant> {
 }
 
 export async function getActionHistory(signal?: AbortSignal): Promise<ActionHistoryResponse> {
-  const response = await fetch("/api/v1/actions/history", {
+  const response = await fetch(ingressRelative("/api/v1/actions/history"), {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
     signal,
@@ -127,7 +131,7 @@ export async function getActionHistory(signal?: AbortSignal): Promise<ActionHist
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const response = await fetch("/api/v1/health", { headers: { Accept: "application/json" } });
+  const response = await fetch(ingressRelative("/api/v1/health"), { headers: { Accept: "application/json" } });
   if (!response.ok) throw new ApiError(response.status, "Diagnostics are unavailable.");
   return (await response.json()) as HealthResponse;
 }

@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir --upgrade pip==26.2.1 && \
 
 FROM python:3.14-alpine3.22
 ARG BUILD_ARCH
-ARG BUILD_VERSION=0.2.6
+ARG BUILD_VERSION=0.2.7
 
 RUN apk add --no-cache jq nginx supervisor tzdata
 COPY --from=backend-build /opt/venv /opt/venv

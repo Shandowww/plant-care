@@ -291,7 +291,7 @@ function App() {
           <NavLink view="plants" current={view} icon={<Leaf size={19} />} label="All plants" />
           <NavLink view="settings" current={view} icon={<Settings size={19} />} label="Settings" />
         </nav>
-        <div className="sidebar__status"><span className="connection-dot" /><div><strong>{health?.simulator === false ? "Home Assistant connected" : "Simulator connected"}</strong><span>{counts.total || 0} {health?.simulator === false ? "mapped plants" : "plant scenarios"}</span></div></div>
+        <div className="sidebar__status"><span className="connection-dot" /><div><strong>{error ? "Dashboard disconnected" : health === null ? "Connecting…" : health.simulator ? "Simulator connected" : "Home Assistant connected"}</strong><span>{error ? "API unavailable" : health === null ? "Waiting for API" : `${counts.total || 0} ${health.simulator ? "plant scenarios" : "mapped plants"}`}</span></div></div>
         <NavLink view="help" current={view} icon={<CircleHelp size={19} />} label="Help & diagnostics" help />
       </aside>
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7
+
+- Resolve API and plant-image requests relative to the Home Assistant ingress
+  URL instead of escaping to the Home Assistant origin root.
+
 ## 0.2.6
 
 - Permit the standard privilege-drop capabilities Nginx needs when initializing
