@@ -230,11 +230,15 @@ function App() {
 
   async function handleCreatePlant(payload: PlantCreate) {
     const plant = await createPlant(payload);
-    await refreshPlants();
+    if (health?.simulator === false) {
+      try { await syncHomeAssistant(); } catch { /* The background sync will retry. */ }
+    }
+    const response = await refreshPlants();
+    const refreshed = response.plants.find((item) => item.id === plant.id) ?? plant;
     setAddPlantOpen(false);
-    setSelectedPlant(plant);
+    setSelectedPlant(refreshed);
     window.location.hash = "plants";
-    setToast(`${plant.display_name} was added. Map sensors in Home Assistant next.`);
+    setToast(`${plant.display_name} was added with its Home Assistant sensors.`);
   }
 
   async function handleUpdatePlant(plant: Plant, payload: PlantCreate) {
@@ -474,9 +478,9 @@ function EntityMappingDialog({ plant, onClose, onSave }: { plant: Plant; onClose
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog mapping-dialog" role="dialog" aria-modal="true" aria-labelledby="mapping-dialog-title"><button className="dialog__close" type="button" aria-label="Close sensor mapping" onClick={onClose}><X /></button><p className="eyebrow">HOME ASSISTANT ENTITIES</p><h2 id="mapping-dialog-title">Map sensors for {plant.display_name}</h2><p className="dialog-subtitle">PlantCare keeps the plant and its history if an entity is changed or removed. Unavailable entities produce a sensor warning; they never delete the plant.</p>{source && <span className="source-badge">{source === "simulator" ? "Simulator entity catalog" : "Live Home Assistant entities"}</span>}{loading ? <p className="mapping-loading">Loading sensor entities…</p> : <form className="mapping-form" onSubmit={submit}><EntitySelect label="Soil moisture" value={mapping.moisture_entity_id} entities={optionsFor(["moisture", "humidity"])} onChange={(value) => setMapping({ ...mapping, moisture_entity_id: value })} /><EntitySelect label="Temperature" value={mapping.temperature_entity_id} entities={optionsFor(["temperature"])} onChange={(value) => setMapping({ ...mapping, temperature_entity_id: value })} /><EntitySelect label="Battery" value={mapping.battery_entity_id} entities={optionsFor(["battery"])} onChange={(value) => setMapping({ ...mapping, battery_entity_id: value })} /><EntitySelect label="Illuminance" value={mapping.illuminance_entity_id} entities={optionsFor(["illuminance"])} onChange={(value) => setMapping({ ...mapping, illuminance_entity_id: value })} />{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "Saving…" : "Save mapping"}</button></div></form>}</section></div>;
 }
 
-function EntitySelect({ label, value, entities, onChange }: { label: string; value: string | null; entities: HomeAssistantEntity[]; onChange: (value: string | null) => void }) {
+function EntitySelect({ label, value, entities, onChange, required = false }: { label: string; value: string | null; entities: HomeAssistantEntity[]; onChange: (value: string | null) => void; required?: boolean }) {
   const currentMissing = value && !entities.some((entity) => entity.entity_id === value);
-  return <label>{label}<select value={value ?? ""} onChange={(event) => onChange(event.target.value || null)}><option value="">Not mapped</option>{currentMissing && <option value={value ?? ""}>{value} (currently unavailable)</option>}{entities.map((entity) => <option value={entity.entity_id} key={entity.entity_id}>{entity.name} — {entity.state}{entity.unit ? ` ${entity.unit}` : ""}</option>)}</select></label>;
+  return <label>{label}{required ? " *" : ""}<select required={required} value={value ?? ""} onChange={(event) => onChange(event.target.value || null)}><option value="">Not mapped</option>{currentMissing && <option value={value ?? ""}>{value} (currently unavailable)</option>}{entities.map((entity) => <option value={entity.entity_id} key={entity.entity_id}>{entity.name} — {entity.state}{entity.unit ? ` ${entity.unit}` : ""}</option>)}</select></label>;
 }
 
 function PhotoDialog({ plant, onClose }: { plant: Plant; onClose: () => void }) {
@@ -484,15 +488,67 @@ function PhotoDialog({ plant, onClose }: { plant: Plant; onClose: () => void }) 
   return <div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="photo-dialog-title"><button className="dialog__close" type="button" aria-label="Close photo check" onClick={onClose}><X /></button><p className="eyebrow">PRIVATE PHOTO CHECK</p><h2 id="photo-dialog-title">Check {plant.display_name}</h2>{demo ? <div className="demo-result"><Check /><h3>Demo capture flow works</h3><p>No image was uploaded. Provider-backed health assessment and private photo retention arrive in Phase 5.</p></div> : <><p className="dialog-subtitle">Test the consent and capture entry point without sending a real image.</p><div className="photo-placeholder"><Leaf /><span>Camera or photo picker</span></div><label className="consent-row"><input type="checkbox" required />I understand a future provider may process the selected image.</label></>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button>{!demo && <button className="primary-button" type="button" onClick={() => setDemo(true)}>Run demo check</button>}</div></section></div>;
 }
 
+function suggestedPlantName(entity: HomeAssistantEntity): string {
+  const cleaned = entity.name
+    .replace(/\s+(soil\s+)?(moisture|humidity|temperature|battery|illuminance|light)(\s+(sensor|level))?$/i, "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return cleaned || entity.name;
+}
+
 function AddPlantDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (payload: PlantCreate) => Promise<void> }) {
-  const [form, setForm] = useState<PlantCreate>({ display_name: "", location: "", common_name: "", scientific_name: null, environment_type: "indoor" });
+  const emptyMapping: PlantEntityMapping = { moisture_entity_id: null, temperature_entity_id: null, battery_entity_id: null, illuminance_entity_id: null };
+  const [form, setForm] = useState<Omit<PlantCreate, "entity_mapping">>({ display_name: "", location: "", common_name: "", scientific_name: null, environment_type: "indoor" });
+  const [mapping, setMapping] = useState<PlantEntityMapping>(emptyMapping);
+  const [entities, setEntities] = useState<HomeAssistantEntity[]>([]);
+  const [source, setSource] = useState<string | null>(null);
+  const [loadingSensors, setLoadingSensors] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSaving(true); setMessage(null);
-    try { await onCreate(form); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "The plant could not be added."); setSaving(false); }
+  useEffect(() => {
+    const controller = new AbortController();
+    getHomeAssistantEntities(controller.signal)
+      .then((response) => { setEntities(response.entities); setSource(response.source); })
+      .catch((reason: unknown) => { if (!(reason instanceof DOMException && reason.name === "AbortError")) setMessage(reason instanceof Error ? reason.message : "Entities could not be loaded."); })
+      .finally(() => setLoadingSensors(false));
+    return () => controller.abort();
+  }, []);
+  const optionsFor = (deviceClasses: string[]) => entities.filter((entity) => entity.device_class && deviceClasses.includes(entity.device_class));
+  function chooseSensor(field: keyof PlantEntityMapping, value: string | null) {
+    const selected = entities.find((entity) => entity.entity_id === value);
+    setMapping((current) => {
+      const next = { ...current, [field]: value };
+      if (!selected?.device_id) return next;
+      const companions: Array<[keyof PlantEntityMapping, string[]]> = [
+        ["moisture_entity_id", ["moisture", "humidity"]],
+        ["temperature_entity_id", ["temperature"]],
+        ["battery_entity_id", ["battery"]],
+        ["illuminance_entity_id", ["illuminance"]],
+      ];
+      for (const [companionField, deviceClasses] of companions) {
+        if (next[companionField]) continue;
+        const companion = entities.find((entity) => entity.device_id === selected.device_id && entity.device_class && deviceClasses.includes(entity.device_class));
+        if (companion) next[companionField] = companion.entity_id;
+      }
+      return next;
+    });
+    if (selected) {
+      const defaultName = suggestedPlantName(selected);
+      setForm((current) => ({
+        ...current,
+        display_name: current.display_name || defaultName,
+        common_name: current.common_name || defaultName,
+        location: current.location || selected.area_name || "",
+      }));
+    }
   }
-  return <div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="add-plant-title"><button className="dialog__close" type="button" aria-label="Close add plant" onClick={onClose}><X /></button><p className="eyebrow">SIMULATOR PLANT</p><h2 id="add-plant-title">Add a plant</h2><p className="dialog-subtitle">The plant is stored locally and starts in “Sensor issue” until entities are mapped.</p><form className="dialog-form" onSubmit={submit}><label>Friendly name<input required maxLength={120} value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} /></label><label>Location<input required maxLength={120} value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label><label>Common name<input required maxLength={120} value={form.common_name} onChange={(event) => setForm({ ...form, common_name: event.target.value })} /></label><label>Scientific name <small>optional</small><input maxLength={160} value={form.scientific_name ?? ""} onChange={(event) => setForm({ ...form, scientific_name: event.target.value || null })} /></label><label>Exposure<select value={form.environment_type} onChange={(event) => setForm({ ...form, environment_type: event.target.value as PlantCreate["environment_type"] })}><option value="indoor">Indoor</option><option value="outdoor_covered">Outdoor, covered</option><option value="outdoor_exposed">Outdoor, exposed</option></select></label>{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving}>{saving ? "Adding…" : "Add plant"}</button></div></form></section></div>;
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage(null);
+    if (!mapping.moisture_entity_id) { setMessage("Choose a soil-moisture sensor first."); return; }
+    setSaving(true);
+    try { await onCreate({ ...form, entity_mapping: mapping }); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "The plant could not be added."); setSaving(false); }
+  }
+  return <div className="dialog-backdrop" role="presentation"><section className="dialog add-plant-dialog" role="dialog" aria-modal="true" aria-labelledby="add-plant-title"><button className="dialog__close" type="button" aria-label="Close add plant" onClick={onClose}><X /></button><p className="eyebrow">SENSOR-FIRST SETUP</p><h2 id="add-plant-title">Add a plant</h2><p className="dialog-subtitle">Choose the Home Assistant sensors first. PlantCare suggests editable identity and location values from their metadata.</p><form className="dialog-form sensor-first-form" onSubmit={submit}><fieldset className="sensor-first-fields"><legend>1. Choose sensors</legend>{source && <span className="source-badge">{source === "simulator" ? "Simulator entity catalog" : "Live Home Assistant entities"}</span>}{loadingSensors ? <p className="mapping-loading">Loading sensor entities…</p> : <div className="sensor-grid"><EntitySelect required label="Soil moisture" value={mapping.moisture_entity_id} entities={optionsFor(["moisture", "humidity"])} onChange={(value) => chooseSensor("moisture_entity_id", value)} /><EntitySelect label="Temperature" value={mapping.temperature_entity_id} entities={optionsFor(["temperature"])} onChange={(value) => chooseSensor("temperature_entity_id", value)} /><EntitySelect label="Battery" value={mapping.battery_entity_id} entities={optionsFor(["battery"])} onChange={(value) => chooseSensor("battery_entity_id", value)} /><EntitySelect label="Illuminance" value={mapping.illuminance_entity_id} entities={optionsFor(["illuminance"])} onChange={(value) => chooseSensor("illuminance_entity_id", value)} /></div>}</fieldset><p className="form-step">2. Review editable plant details</p><label>Friendly name<input required maxLength={120} value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} /></label><label>Location<input required maxLength={120} value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label><label>Common name<input required maxLength={120} value={form.common_name} onChange={(event) => setForm({ ...form, common_name: event.target.value })} /></label><label>Scientific name <small>optional</small><input maxLength={160} value={form.scientific_name ?? ""} onChange={(event) => setForm({ ...form, scientific_name: event.target.value || null })} /></label><label>Exposure<select value={form.environment_type} onChange={(event) => setForm({ ...form, environment_type: event.target.value as PlantCreate["environment_type"] })}><option value="indoor">Indoor</option><option value="outdoor_covered">Outdoor, covered</option><option value="outdoor_exposed">Outdoor, exposed</option></select></label>{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || loadingSensors}>{saving ? "Adding…" : "Add connected plant"}</button></div></form></section></div>;
 }
 
 function EditPlantDialog({ plant, onClose, onUpdate, onArchive }: { plant: Plant; onClose: () => void; onUpdate: (plant: Plant, payload: PlantCreate) => Promise<void>; onArchive: (plant: Plant) => Promise<void> }) {

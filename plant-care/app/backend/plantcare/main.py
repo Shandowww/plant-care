@@ -360,13 +360,26 @@ def create_app(
         )
         session.add(plant)
         await session.flush()
+        if payload.entity_mapping is not None:
+            plant.entity_mapping = PlantEntityMapping(
+                plant_id=plant.id,
+                **payload.entity_mapping.model_dump(),
+            )
         session.add(
             AuditEvent(
                 actor=identity.actor,
                 event_type="plant_created",
                 object_type="plant",
                 object_id=plant.id,
-                new_json={"display_name": plant.display_name, "location": plant.location},
+                new_json={
+                    "display_name": plant.display_name,
+                    "location": plant.location,
+                    "entity_mapping": (
+                        payload.entity_mapping.model_dump()
+                        if payload.entity_mapping is not None
+                        else None
+                    ),
+                },
             )
         )
         await session.commit()

@@ -54,11 +54,15 @@ npm --prefix plant-care/app/frontend run dev
 
 The frontend development server proxies `/api` to `http://127.0.0.1:8000`.
 
-The simulator portal supports dashboard filters and sorting, plant detail and
-photo-flow previews, manual plant creation/edit/archive, care-action
+The portal supports dashboard filters and sorting, plant detail and
+photo-flow previews, sensor-first plant creation, edit/archive, care-action
 snooze/complete/undo and visible history,
 portal preferences, and live diagnostics. Start with `#dashboard`, `#actions`,
 `#plants`, `#settings`, or `#help`; navigation updates the hash automatically.
+
+When adding a plant, choose its Home Assistant moisture sensor first. PlantCare
+will suggest an editable name and area and preselect temperature, battery, and
+illuminance entities that belong to the same Home Assistant device.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be

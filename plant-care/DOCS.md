@@ -11,8 +11,9 @@ its own local database.
    repository.
 2. Install **Plant Care Dashboard**.
 3. Start the app and open it from the Home Assistant sidebar.
-4. Add each plant and use **Manage sensor mapping** to select its Home Assistant
-   moisture, temperature, battery, and optional illuminance entities.
+4. Add each plant by selecting its Home Assistant moisture sensor first.
+   PlantCare preselects companion entities from the same device and suggests an
+   editable plant name and Home Assistant area.
 5. If the standalone LAN view is needed, create its password from the ingress
    session first.
 

@@ -24,7 +24,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.2.7",
+        "version": "0.3.0",
         "database": "ready",
         "simulator": True,
     }
@@ -60,6 +60,8 @@ def test_simulator_exposes_sensor_entity_catalog(development_client: TestClient)
     assert any(
         entity["entity_id"] == "sensor.golden_pothos_soil_moisture"
         and entity["device_class"] == "moisture"
+        and entity["area_name"] == "Kitchen"
+        and entity["device_id"] == "simulator-golden_pothos"
         for entity in payload["entities"]
     )
 
@@ -116,6 +118,35 @@ def test_manual_plant_can_be_created(development_client: TestClient) -> None:
     plants = development_client.get("/api/v1/plants").json()
     assert plants["summary"]["total"] == 10
     assert plants["summary"]["sensor_issues"] == 2
+
+
+def test_plant_and_sensor_mapping_can_be_created_together(
+    development_client: TestClient,
+) -> None:
+    response = development_client.post(
+        "/api/v1/plants",
+        json={
+            "display_name": "Kitchen Pothos",
+            "location": "Kitchen",
+            "common_name": "Golden pothos",
+            "scientific_name": "Epipremnum aureum",
+            "environment_type": "indoor",
+            "entity_mapping": {
+                "moisture_entity_id": "sensor.kitchen_pothos_moisture",
+                "temperature_entity_id": "sensor.kitchen_pothos_temperature",
+                "battery_entity_id": "sensor.kitchen_pothos_battery",
+                "illuminance_entity_id": None,
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["entity_mapping"] == {
+        "moisture_entity_id": "sensor.kitchen_pothos_moisture",
+        "temperature_entity_id": "sensor.kitchen_pothos_temperature",
+        "battery_entity_id": "sensor.kitchen_pothos_battery",
+        "illuminance_entity_id": None,
+    }
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(

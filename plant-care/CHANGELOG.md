@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Add sensor-first plant onboarding with atomic plant and entity mapping.
+- Prefill editable plant names and locations from Home Assistant entity, device,
+  and area metadata.
+- Automatically select companion readings exposed by the same sensor device.
+- Resolve frontend API and image requests correctly under Home Assistant ingress.
+
 ## 0.2.7
 
 - Resolve API and plant-image requests relative to the Home Assistant ingress

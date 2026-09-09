@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 
@@ -13,6 +14,21 @@ RELEVANT_DEVICE_CLASSES = {
     "temperature",
 }
 
+ENTITY_METADATA_TEMPLATE = """
+{% set ns = namespace(items=[]) %}
+{% set supported = ['battery', 'humidity', 'illuminance', 'moisture', 'temperature'] %}
+{% for entity in states.sensor %}
+  {% if entity.attributes.device_class in supported %}
+    {% set ns.items = ns.items + [{
+      'entity_id': entity.entity_id,
+      'area_name': area_name(entity.entity_id),
+      'device_id': device_id(entity.entity_id)
+    }] %}
+  {% endif %}
+{% endfor %}
+{{ ns.items | to_json }}
+""".strip()
+
 
 def simulator_entities() -> list[HomeAssistantEntity]:
     plants = {
@@ -25,6 +41,17 @@ def simulator_entities() -> list[HomeAssistantEntity]:
         "monstera": ("Monstera", "52", "24.1", "88", "unavailable"),
         "snake_plant": ("Snake Plant", "34", "24.4", "91", "unavailable"),
         "olive_tree": ("Olive Tree", "27", "28.3", "59", "1715"),
+    }
+    areas = {
+        "golden_pothos": "Kitchen",
+        "peace_lily": "Bedroom",
+        "window_pot": "Outside window",
+        "balcony_left": "Balcony",
+        "balcony_right": "Balcony",
+        "bedroom_pot": "Bedroom",
+        "monstera": "Living room",
+        "snake_plant": "Living room",
+        "olive_tree": "Balcony",
     }
     entities: list[HomeAssistantEntity] = []
     definitions = (
@@ -43,6 +70,8 @@ def simulator_entities() -> list[HomeAssistantEntity]:
                     device_class=device_class,
                     state=values[value_index],
                     unit=unit,
+                    area_name=areas[slug],
+                    device_id=f"simulator-{slug}",
                 )
             )
     return entities
@@ -62,11 +91,52 @@ class HomeAssistantClient:
         ) as client:
             response = await client.get("states")
             response.raise_for_status()
+            metadata = await self._entity_metadata(client)
         payload = response.json()
-        return [entity for item in payload if (entity := self._parse_entity(item)) is not None]
+        entities: list[HomeAssistantEntity] = []
+        for item in payload:
+            item_metadata = None
+            if isinstance(item, dict):
+                entity_id = item.get("entity_id")
+                if isinstance(entity_id, str):
+                    item_metadata = metadata.get(entity_id)
+            entity = self._parse_entity(item, item_metadata)
+            if entity is not None:
+                entities.append(entity)
+        return entities
 
     @staticmethod
-    def _parse_entity(item: Any) -> HomeAssistantEntity | None:
+    async def _entity_metadata(
+        client: httpx2.AsyncClient,
+    ) -> dict[str, tuple[str | None, str | None]]:
+        try:
+            response = await client.post(
+                "template",
+                json={"template": ENTITY_METADATA_TEMPLATE},
+            )
+            response.raise_for_status()
+            payload = json.loads(response.text)
+        except Exception:
+            return {}
+        if not isinstance(payload, list):
+            return {}
+        result: dict[str, tuple[str | None, str | None]] = {}
+        for item in payload:
+            if not isinstance(item, dict) or not isinstance(item.get("entity_id"), str):
+                continue
+            area_name = item.get("area_name")
+            device_id = item.get("device_id")
+            result[item["entity_id"]] = (
+                area_name if isinstance(area_name, str) and area_name else None,
+                device_id if isinstance(device_id, str) and device_id else None,
+            )
+        return result
+
+    @staticmethod
+    def _parse_entity(
+        item: Any,
+        metadata: tuple[str | None, str | None] | None = None,
+    ) -> HomeAssistantEntity | None:
         if not isinstance(item, dict):
             return None
         entity_id = item.get("entity_id")
@@ -86,6 +156,8 @@ class HomeAssistantClient:
             device_class=device_class,
             state=str(item.get("state", "unknown")),
             unit=unit if isinstance(unit, str) else None,
+            area_name=metadata[0] if metadata else None,
+            device_id=metadata[1] if metadata else None,
             last_updated=HomeAssistantClient._parse_timestamp(item.get("last_updated")),
         )
 

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from plantcare.config import Settings
+from plantcare.home_assistant import HomeAssistantClient
 from plantcare.main import create_app
 from plantcare.schemas import HomeAssistantEntity
 from plantcare.sync import normalize_reading
@@ -163,3 +164,22 @@ def test_normalization_rejects_out_of_range_percentage() -> None:
     )
 
     assert normalize_reading("moisture", entity) is None
+
+
+def test_home_assistant_entity_includes_area_and_device_metadata() -> None:
+    entity = HomeAssistantClient._parse_entity(
+        {
+            "entity_id": "sensor.office_fern_moisture",
+            "state": "42",
+            "attributes": {
+                "friendly_name": "Office Fern Soil moisture",
+                "device_class": "moisture",
+                "unit_of_measurement": "%",
+            },
+        },
+        ("Office", "device-fern"),
+    )
+
+    assert entity is not None
+    assert entity.area_name == "Office"
+    assert entity.device_id == "device-fern"

@@ -28,6 +28,8 @@ class HomeAssistantEntity(BaseModel):
     device_class: str | None
     state: str
     unit: str | None
+    area_name: str | None = None
+    device_id: str | None = None
     last_updated: datetime | None = None
 
 
@@ -112,6 +114,7 @@ class PlantCreateRequest(BaseModel):
     environment_type: str = Field(
         default="indoor", pattern="^(indoor|outdoor_covered|outdoor_exposed)$"
     )
+    entity_mapping: PlantEntityMappingUpdate | None = None
 
 
 class PlantUpdateRequest(BaseModel):

@@ -33,6 +33,8 @@ export interface HomeAssistantEntity {
   device_class: "moisture" | "humidity" | "temperature" | "battery" | "illuminance" | string | null;
   state: string;
   unit: string | null;
+  area_name: string | null;
+  device_id: string | null;
 }
 
 export interface HomeAssistantEntityResponse {
@@ -56,6 +58,7 @@ export interface PlantCreate {
   common_name: string;
   scientific_name: string | null;
   environment_type: "indoor" | "outdoor_covered" | "outdoor_exposed";
+  entity_mapping?: PlantEntityMapping;
 }
 
 export type ActionStatus = "open" | "snoozed" | "completed";
