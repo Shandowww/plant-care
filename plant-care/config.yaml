@@ -1,5 +1,5 @@
 name: Plant Care Dashboard
-version: "0.4.0"
+version: "0.5.0"
 slug: plant_care
 description: Local-first plant sensor guidance and shared care actions
 url: https://github.com/Shandowww/plant-care
@@ -28,5 +28,9 @@ backup: hot
 stage: experimental
 options:
   log_level: info
+  cloudflare_account_id: ""
+  cloudflare_api_token: ""
 schema:
   log_level: list(debug|info|warning|error)
+  cloudflare_account_id: str
+  cloudflare_api_token: password

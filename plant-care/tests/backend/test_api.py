@@ -6,6 +6,27 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from plantcare.config import Settings
 from plantcare.main import create_app
+from plantcare.plant_doctor import PlantDoctorContext
+from plantcare.schemas import PlantDoctorResponse
+
+
+class StubPlantDoctor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[bytes, PlantDoctorContext]] = []
+
+    async def analyze(self, photo: bytes, context: PlantDoctorContext) -> PlantDoctorResponse:
+        self.calls.append((photo, context))
+        return PlantDoctorResponse(
+            summary="The plant looks generally healthy.",
+            observations=["Leaves are mostly green."],
+            possible_issues=["One leaf may have a dry edge."],
+            next_steps=["Inspect the underside of the leaves."],
+            confidence="medium",
+            provider="Cloudflare Workers AI",
+            model="@cf/meta/llama-3.2-11b-vision-instruct",
+            neurons=12.5,
+            disclaimer="Confirm the guidance before changing care.",
+        )
 
 
 @pytest.fixture
@@ -26,9 +47,10 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "database": "ready",
         "simulator": True,
+        "plant_doctor_configured": False,
     }
 
 
@@ -211,6 +233,75 @@ def test_plant_photo_accepts_iphone_heic(development_client: TestClient) -> None
 
     assert response.status_code == 200
     assert response.json()["photo_updated_at"] is not None
+
+
+def test_plant_doctor_requires_explicit_consent(development_client: TestClient) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+
+    response = development_client.post(
+        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": False}
+    )
+
+    assert response.status_code == 422
+
+
+def test_plant_doctor_requires_a_photo(development_client: TestClient) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+
+    response = development_client.post(
+        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Add a current plant photo before running Plant Doctor."
+
+
+def test_plant_doctor_reports_missing_configuration(development_client: TestClient) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+    source = BytesIO()
+    Image.new("RGB", (64, 64), "green").save(source, format="JPEG")
+    development_client.post(
+        f"/api/v1/plants/{plant['id']}/photo",
+        files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
+    )
+
+    response = development_client.post(
+        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
+    )
+
+    assert response.status_code == 503
+    assert "Cloudflare Account ID" in response.json()["detail"]
+
+
+def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> None:
+    doctor = StubPlantDoctor()
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'doctor.db'}",
+        static_dir=tmp_path / "static",
+    )
+    with TestClient(create_app(settings, plant_doctor_client=doctor)) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][1]
+        source = BytesIO()
+        Image.new("RGB", (2400, 1600), "green").save(source, format="JPEG")
+        client.post(
+            f"/api/v1/plants/{plant['id']}/photo",
+            files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
+        )
+
+        response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
+
+    assert response.status_code == 200
+    assert response.json()["neurons"] == 12.5
+    assert response.json()["confidence"] == "medium"
+    assert len(doctor.calls) == 1
+    sent_photo, context = doctor.calls[0]
+    with Image.open(BytesIO(sent_photo)) as image:
+        assert max(image.size) == 1280
+    assert context.display_name == plant["display_name"]
+    assert context.moisture == plant["moisture"]
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(

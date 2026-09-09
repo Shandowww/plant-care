@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -108,6 +108,22 @@ class PlantListResponse(BaseModel):
     summary: DashboardSummary
 
 
+class PlantDoctorRequest(BaseModel):
+    consent: Literal[True]
+
+
+class PlantDoctorResponse(BaseModel):
+    summary: str
+    observations: list[str]
+    possible_issues: list[str]
+    next_steps: list[str]
+    confidence: Literal["low", "medium", "high"]
+    provider: str
+    model: str
+    neurons: float | None = None
+    disclaimer: str
+
+
 class PlantCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     location: str = Field(min_length=1, max_length=120)
@@ -134,6 +150,7 @@ class HealthResponse(BaseModel):
     version: str
     database: str
     simulator: bool
+    plant_doctor_configured: bool
 
 
 class LoginRequest(BaseModel):

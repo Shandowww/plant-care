@@ -103,4 +103,17 @@ export interface HealthResponse {
   version: string;
   database: string;
   simulator: boolean;
+  plant_doctor_configured: boolean;
+}
+
+export interface PlantDoctorResponse {
+  summary: string;
+  observations: string[];
+  possible_issues: string[];
+  next_steps: string[];
+  confidence: "low" | "medium" | "high";
+  provider: string;
+  model: string;
+  neurons: number | null;
+  disclaimer: string;
 }

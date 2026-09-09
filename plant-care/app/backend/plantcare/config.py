@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,8 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("SUPERVISOR_TOKEN", "PLANTCARE_SUPERVISOR_TOKEN"),
     )
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: SecretStr | None = None
 
     @property
     def resolved_database_url(self) -> str:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+- Move private photo add, replacement, and removal into the general Edit plant
+  flow and remove the separate photo controls from cards and plant details.
+- Replace the Plant Doctor demo with an optional Cloudflare Workers AI vision
+  check using a current private photo and limited plant sensor context.
+- Require explicit consent for every Plant Doctor request, show returned neuron
+  usage, and never create care actions or change plant data from an AI result.
+- Keep Cloudflare credentials in protected Home Assistant app options and make
+  their configured/not-configured state visible without returning either secret.
+- Downsize a temporary analysis copy to 1280 pixels; the retained local photo is
+  unchanged and AI assessments are not persisted.
+
 ## 0.4.0
 
 - Add authenticated local plant-photo upload, replacement, retrieval, and

@@ -6,6 +6,12 @@
   `/data/secrets` with restrictive permissions.
 - Ingress identity is accepted only on the dedicated ingress proxy surface.
 - Personal plant photos are processed and retained locally under `/data`.
-- Provider-backed Plant Doctor checks will require per-request consent and are
-  not active yet; locally stored photos are never sent automatically.
+- Plant Doctor is optional and requires the installation owner's own Cloudflare
+  Account ID and API token. Those credentials stay in protected app options and
+  are never returned to the browser, logged, audited, or committed to Git.
+- A Plant Doctor check sends a reduced metadata-free image plus limited plant and
+  sensor context to Cloudflare only after explicit consent for that request.
+  Home Assistant credentials and entity IDs are not included.
+- Plant Doctor output is displayed transiently, is not persisted, and cannot
+  automatically modify a plant or its care queue.
 - Normal exports and diagnostics exclude secrets and photos.

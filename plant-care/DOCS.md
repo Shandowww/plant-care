@@ -15,9 +15,11 @@ its own local database.
    PlantCare preselects companion entities from the same device and suggests an
    editable plant name and Home Assistant area. Illuminance may be mapped from
    another sensor in the same area when the plant device does not provide it.
-5. Use the camera button on a plant card or **Manage photo** in its details to
-   take or choose a private plant photo.
-6. If the standalone LAN view is needed, create its password from the ingress
+5. Open a plant's **Details**, choose **Edit plant**, and add or replace its
+   private photo in the same form as its name, area, and exposure.
+6. Optional: configure Plant Doctor with your own Cloudflare account credentials
+   as described below.
+7. If the standalone LAN view is needed, create its password from the ingress
    session first.
 
 ### Alternative local Raspberry Pi installation
@@ -50,17 +52,38 @@ port-forward it. Remote use must go through Home Assistant ingress and the
 household's existing secure Home Assistant remote-access method.
 
 All durable state is stored below `/data` and is included in Home Assistant
-backups. No Home Assistant, Telegram, Pl@ntNet, or OpenAI credentials are placed
-in app options.
+backups. The Home Assistant Supervisor token is injected at runtime and is not
+stored in the repository.
 
 ## Private plant photos
 
 Personal photos remain inside the PlantCare app data directory. Uploads are
 limited to 10 MB and JPEG, PNG, WebP, HEIC, or HEIF input. PlantCare corrects orientation,
 resizes the image to at most 2048 pixels on either side, strips embedded metadata,
-and stores a private JPEG. Replacing or deleting a photo updates the cards and
-details automatically. Plant Doctor remains a separate demo and never sends a
-stored photo externally.
+and stores a private JPEG. Replacing or removing a photo is part of **Edit
+plant**, and cards and details update automatically.
+
+## Optional Plant Doctor
+
+Plant Doctor uses Cloudflare Workers AI only when an installation owner provides
+their own credentials. In Home Assistant, open **Settings → Apps → Plant Care
+Dashboard → Configuration**, enter `cloudflare_account_id` and
+`cloudflare_api_token`, save, and restart the app. Accept the terms for
+`@cf/meta/llama-3.2-11b-vision-instruct` in the Cloudflare dashboard before the
+first check.
+
+The token is a protected app option. It is read by the backend, is not sent to
+the browser, is not written to logs or audit records, and must never be committed
+to Git. Every PlantCare installation uses its owner's Cloudflare credentials;
+there is no shared PlantCare AI account.
+
+For each check, PlantCare requires a current private photo and fresh consent.
+It sends Cloudflare a temporary metadata-free copy resized to at most 1280 pixels,
+the plant identity, location/exposure, and the latest moisture, temperature, and
+illuminance values. It does not send Home Assistant credentials or entity IDs.
+The assessment and neuron usage are displayed but not saved, and suggestions do
+not automatically create actions or change plant care. Cloudflare's allowance
+and data policies remain subject to the owner's Cloudflare plan and terms.
 
 ## Sensor mapping
 

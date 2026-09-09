@@ -1,4 +1,4 @@
-import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantEntityMapping, PlantResponse } from "./types";
+import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantDoctorResponse, PlantEntityMapping, PlantResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -104,6 +104,25 @@ export async function deletePlantPhoto(plantId: string): Promise<void> {
     headers: csrf ? { "X-CSRF-Token": csrf } : {},
   });
   if (!response.ok) throw new ApiError(response.status, "The photo could not be deleted.");
+}
+
+export async function diagnosePlant(plantId: string): Promise<PlantDoctorResponse> {
+  const csrf = csrfToken();
+  const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/doctor`), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+    },
+    body: JSON.stringify({ consent: true }),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new ApiError(response.status, payload?.detail ?? "Plant Doctor could not complete the check.");
+  }
+  return (await response.json()) as PlantDoctorResponse;
 }
 
 export async function getHomeAssistantEntities(signal?: AbortSignal): Promise<HomeAssistantEntityResponse> {

@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { Plant } from "./types";
 
-const plant = {
+const plant: Plant = {
   id: "plant-1",
   display_name: "Golden Pothos",
   location: "Kitchen",
@@ -23,11 +24,6 @@ const plant = {
   active: true,
 };
 
-const plantResponse = {
-  plants: [plant],
-  summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 },
-};
-
 const action = {
   id: "action-1",
   plant_id: "plant-1",
@@ -43,7 +39,8 @@ const action = {
   completed_by: null,
 };
 
-function mockApi(actionFixture = action) {
+function mockApi(actionFixture = action, plantFixture = plant) {
+  let currentPlant = { ...plantFixture };
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.endsWith("/actions/history")) return new Response(JSON.stringify({ events: [] }), { status: 200 });
@@ -58,22 +55,38 @@ function mockApi(actionFixture = action) {
       return new Response(String(init.body), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (url.endsWith("/plants/plant-1") && init?.method === "PATCH") {
-      return new Response(JSON.stringify({ ...plant, ...JSON.parse(String(init.body)) }), { status: 200 });
+      currentPlant = { ...currentPlant, ...JSON.parse(String(init.body)) };
+      return new Response(JSON.stringify(currentPlant), { status: 200 });
     }
     if (url.endsWith("/plants/plant-1/photo") && init?.method === "POST") {
-      return new Response(JSON.stringify({ ...plant, photo_updated_at: "2026-09-09T18:00:00Z" }), { status: 200 });
+      currentPlant = { ...currentPlant, photo_updated_at: "2026-09-09T18:00:00Z" };
+      return new Response(JSON.stringify(currentPlant), { status: 200 });
     }
     if (url.endsWith("/plants/plant-1/photo") && init?.method === "DELETE") {
+      currentPlant = { ...currentPlant, photo_updated_at: null };
       return new Response(null, { status: 204 });
+    }
+    if (url.endsWith("/plants/plant-1/doctor") && init?.method === "POST") {
+      return new Response(JSON.stringify({
+        summary: "The leaves look generally healthy.",
+        observations: ["Leaves are mostly green."],
+        possible_issues: ["One edge may be dry."],
+        next_steps: ["Check the underside of the leaves."],
+        confidence: "medium",
+        provider: "Cloudflare Workers AI",
+        model: "@cf/meta/llama-3.2-11b-vision-instruct",
+        neurons: 11.25,
+        disclaimer: "Confirm suggestions before changing care.",
+      }), { status: 200 });
     }
     if (url.endsWith("/plants") && init?.method === "POST") {
       const payload = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ ...plant, ...payload, id: "plant-2", state: "sensor_issue", entity_mapping: payload.entity_mapping ?? null }), { status: 201 });
     }
-    if (url.endsWith("/plants")) return new Response(JSON.stringify(plantResponse), { status: 200 });
+    if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.1.0", database: "ready", simulator: true }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.5.0", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -108,49 +121,67 @@ describe("portal", () => {
     expect(screen.getByRole("dialog", { name: "Golden Pothos" })).toBeInTheDocument();
   });
 
-  it("opens local photo management separately from details", async () => {
+  it("keeps photo management inside Edit plant", async () => {
     mockApi();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Manage Golden Pothos photo" }));
-    expect(screen.getByRole("dialog", { name: "Golden Pothos photo" })).toBeInTheDocument();
-    expect(screen.getByText("No personal photo yet")).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Golden Pothos photo" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    expect(screen.queryByRole("button", { name: "Manage photo" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit plant" }));
+    expect(screen.getByRole("group", { name: "Plant photo" })).toBeInTheDocument();
+    expect(screen.getByText("Using the bundled species illustration")).toBeInTheDocument();
   });
 
   it("uploads and deletes a private plant photo", async () => {
     const fetchMock = mockApi();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Manage Golden Pothos photo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit plant" }));
     const photo = new File(["photo bytes"], "pothos.jpg", { type: "image/jpeg" });
     fireEvent.change(screen.getByLabelText(/Choose or take a photo/), { target: { files: [photo] } });
-    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
-    await screen.findByText("Golden Pothos photo was saved locally.");
-    expect(screen.getByRole("img", { name: "Preview of Golden Pothos" })).toHaveAttribute(
-      "src",
-      expect.stringContaining("api/v1/plants/plant-1/photo"),
-    );
-    expect(screen.getByRole("img", { name: "Photo of Golden Pothos" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Golden Pothos was updated.");
+    expect(screen.getAllByRole("img", { name: "Photo of Golden Pothos" }).length).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/photo",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Delete photo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
-    await screen.findByText("Golden Pothos photo was deleted.");
-    expect(screen.getByText("No personal photo yet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit plant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove current photo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Golden Pothos was updated.");
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/photo",
       expect.objectContaining({ method: "DELETE" }),
     );
   });
 
-  it("labels Plant Doctor as a demo", async () => {
+  it("requires a current photo before Plant Doctor can run", async () => {
     mockApi();
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
-    fireEvent.click(screen.getByRole("button", { name: "Plant doctor · demo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
     expect(screen.getByRole("dialog", { name: "Check Golden Pothos" })).toBeInTheDocument();
-    expect(screen.getByText("Provider connection pending")).toBeInTheDocument();
+    expect(screen.getByText("A current photo is required")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Edit plant" }));
+    expect(screen.getByRole("dialog", { name: "Edit Golden Pothos" })).toBeInTheDocument();
+  });
+
+  it("runs Plant Doctor only after one-check consent and shows usage", async () => {
+    const fetchMock = mockApi(action, { ...plant, photo_updated_at: "2026-09-09T18:00:00Z" });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    const send = screen.getByRole("button", { name: "Send for diagnosis" });
+    expect(send).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(send);
+    await screen.findByText("The leaves look generally healthy.");
+    expect(screen.getByText(/11\.25 neurons/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1/doctor",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ consent: true }) }),
+    );
   });
 
   it("maps Home Assistant sensor entities from plant details", async () => {

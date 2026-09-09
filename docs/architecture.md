@@ -15,6 +15,13 @@ metadata-free JPEG, and stores one current photo per plant below `/data/photos`.
 Plant responses expose only a cache version timestamp; image bytes remain behind
 the same ingress or LAN authentication boundary as the rest of the API.
 
+Plant Doctor is an optional backend-only Cloudflare Workers AI integration.
+Credentials are read from protected app options into the backend process and are
+never returned by the API. After explicit per-check browser consent, the backend
+creates a smaller temporary JPEG and sends it with limited plant identity and
+sensor context. Provider results are returned to that request but are not
+persisted; audit data records only provider, model, confidence, and usage.
+
 Home Assistant Core remains the sole live device source. The Phase 2 REST client
 discovers relevant entities and synchronizes only explicitly mapped entities on
 a guarded background interval. Normalized readings are stored idempotently by

@@ -55,7 +55,7 @@ npm --prefix plant-care/app/frontend run dev
 The frontend development server proxies `/api` to `http://127.0.0.1:8000`.
 
 The portal supports dashboard filters and sorting, plant detail, private local
-plant photos, sensor-first plant creation, edit/archive, care-action
+plant photos, an optional consent-based Plant Doctor, sensor-first plant creation, edit/archive, care-action
 snooze/complete/undo and visible history,
 portal preferences, and live diagnostics. Start with `#dashboard`, `#actions`,
 `#plants`, `#settings`, or `#help`; navigation updates the hash automatically.
@@ -68,7 +68,14 @@ with an available sensor in the same area suggested first.
 
 Plant photos are validated, resized, stripped of embedded metadata, and kept
 under the add-on's `/data` volume. A personal photo automatically replaces the
-bundled species illustration on cards and detail views until it is deleted.
+bundled species illustration on cards and detail views until it is removed from
+the general Edit plant form.
+
+Plant Doctor can use the installation owner's Cloudflare Workers AI credentials.
+The Account ID and API token are configured in Home Assistant app options, never
+in this repository or in browser code. A photo and limited sensor context are
+sent only after consent for each check; the result is not persisted and cannot
+change care actions automatically.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be

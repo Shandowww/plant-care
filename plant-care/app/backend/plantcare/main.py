@@ -37,7 +37,20 @@ from .models import (
     PlantEntityMapping,
     Reading,
 )
-from .photos import MAX_UPLOAD_BYTES, InvalidPhotoError, photo_path, prepare_photo, store_photo
+from .photos import (
+    MAX_UPLOAD_BYTES,
+    InvalidPhotoError,
+    photo_path,
+    prepare_photo,
+    prepare_photo_for_analysis,
+    store_photo,
+)
+from .plant_doctor import (
+    CloudflarePlantDoctor,
+    PlantDoctorContext,
+    PlantDoctorProviderError,
+    PlantDoctorSource,
+)
 from .schemas import (
     ActionHistoryItem,
     ActionHistoryResponse,
@@ -51,6 +64,8 @@ from .schemas import (
     LoginRequest,
     PasswordRequest,
     PlantCreateRequest,
+    PlantDoctorRequest,
+    PlantDoctorResponse,
     PlantEntityMappingSummary,
     PlantEntityMappingUpdate,
     PlantListResponse,
@@ -71,12 +86,24 @@ AUTO_MANAGED_ACTION_TYPES = {"low_moisture", "sensor_issue"}
 def create_app(
     settings: Settings | None = None,
     home_assistant_client: HomeAssistantStateSource | None = None,
+    plant_doctor_client: PlantDoctorSource | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(app_settings)
     auth = AuthService(app_settings)
     home_assistant = home_assistant_client or HomeAssistantClient(app_settings.supervisor_token)
+    cloudflare_token = (
+        app_settings.cloudflare_api_token.get_secret_value().strip()
+        if app_settings.cloudflare_api_token
+        else ""
+    )
+    plant_doctor = plant_doctor_client
+    if plant_doctor is None and app_settings.cloudflare_account_id and cloudflare_token:
+        plant_doctor = CloudflarePlantDoctor(
+            account_id=app_settings.cloudflare_account_id,
+            api_token=cloudflare_token,
+        )
     sync_lock = asyncio.Lock()
 
     async def sync_once() -> SyncResult:
@@ -134,6 +161,7 @@ def create_app(
     application.state.auth = auth
     application.state.settings = app_settings
     application.state.home_assistant = home_assistant
+    application.state.plant_doctor = plant_doctor
 
     async def get_session() -> AsyncIterator[AsyncSession]:
         async for session in database.session():
@@ -155,6 +183,7 @@ def create_app(
             version=__version__,
             database="ready",
             simulator=app_settings.simulator_enabled,
+            plant_doctor_configured=plant_doctor is not None,
         )
 
     @application.get("/api/v1/auth/session", response_model=SessionResponse)
@@ -560,6 +589,90 @@ def create_app(
         await session.commit()
         await asyncio.to_thread(photo_path(app_settings.data_dir, plant.id).unlink, missing_ok=True)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.post(
+        "/api/v1/plants/{plant_id}/doctor",
+        response_model=PlantDoctorResponse,
+    )
+    async def diagnose_plant(
+        plant_id: str,
+        payload: PlantDoctorRequest,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantDoctorResponse:
+        del payload
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        target = photo_path(app_settings.data_dir, plant.id)
+        if plant.photo_updated_at is None or not target.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Add a current plant photo before running Plant Doctor.",
+            )
+        if plant_doctor is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Plant Doctor is not configured. Add your Cloudflare Account ID and API "
+                    "token in the add-on configuration."
+                ),
+            )
+        try:
+            stored_photo = await asyncio.to_thread(target.read_bytes)
+            analysis_photo = await asyncio.to_thread(prepare_photo_for_analysis, stored_photo)
+            assessment = await plant_doctor.analyze(
+                analysis_photo,
+                PlantDoctorContext(
+                    display_name=plant.display_name,
+                    common_name=plant.common_name,
+                    scientific_name=plant.scientific_name,
+                    location=plant.location,
+                    environment_type=plant.environment_type,
+                    moisture=plant.moisture,
+                    temperature=plant.temperature,
+                    illuminance=plant.illuminance,
+                ),
+            )
+        except InvalidPhotoError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The stored plant photo could not be prepared for analysis.",
+            ) from exc
+        except PlantDoctorProviderError as exc:
+            logger.warning("plant_doctor_request_failed", provider="cloudflare", reason=exc.kind)
+            if exc.kind == "quota":
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=(
+                        "The Cloudflare daily AI allowance has been reached. Try again tomorrow."
+                    ),
+                ) from exc
+            if exc.kind == "credentials":
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Cloudflare rejected the configured Plant Doctor credentials.",
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Cloudflare could not complete the plant assessment. Try again shortly.",
+            ) from exc
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_doctor_completed",
+                object_type="plant",
+                object_id=plant.id,
+                new_json={
+                    "provider": assessment.provider,
+                    "model": assessment.model,
+                    "confidence": assessment.confidence,
+                    "neurons": assessment.neurons,
+                },
+            )
+        )
+        await session.commit()
+        return assessment
 
     @application.get(
         "/api/v1/plants/{plant_id}/readings",

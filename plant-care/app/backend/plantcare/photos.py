@@ -5,11 +5,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pillow_heif import register_heif_opener
+from pillow_heif import register_heif_opener  # type: ignore[attr-defined]
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGE_DIMENSION = 2048
+ANALYSIS_IMAGE_DIMENSION = 1280
 ALLOWED_FORMATS = {"HEIF", "JPEG", "PNG", "WEBP"}
 
 register_heif_opener(thumbnails=False)
@@ -20,6 +21,14 @@ class InvalidPhotoError(ValueError):
 
 
 def prepare_photo(data: bytes) -> bytes:
+    return _normalize_photo(data, max_dimension=MAX_IMAGE_DIMENSION, quality=86)
+
+
+def prepare_photo_for_analysis(data: bytes) -> bytes:
+    return _normalize_photo(data, max_dimension=ANALYSIS_IMAGE_DIMENSION, quality=78)
+
+
+def _normalize_photo(data: bytes, *, max_dimension: int, quality: int) -> bytes:
     if not data:
         raise InvalidPhotoError("The selected photo is empty.")
     if len(data) > MAX_UPLOAD_BYTES:
@@ -35,7 +44,7 @@ def prepare_photo(data: bytes) -> bytes:
                 source.load()
                 image = ImageOps.exif_transpose(source)
                 image.thumbnail(
-                    (MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION),
+                    (max_dimension, max_dimension),
                     Image.Resampling.LANCZOS,
                 )
                 if image.mode in {"RGBA", "LA"}:
@@ -46,7 +55,7 @@ def prepare_photo(data: bytes) -> bytes:
                 elif image.mode != "RGB":
                     image = image.convert("RGB")
                 output = BytesIO()
-                image.save(output, format="JPEG", quality=86, optimize=True)
+                image.save(output, format="JPEG", quality=quality, optimize=True)
                 return output.getvalue()
     except InvalidPhotoError:
         raise

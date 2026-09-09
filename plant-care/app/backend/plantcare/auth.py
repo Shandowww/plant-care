@@ -4,6 +4,7 @@ import os
 import secrets
 import time
 from dataclasses import dataclass
+from typing import cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -57,7 +58,10 @@ class AuthService:
 
     @staticmethod
     async def _setting(session: AsyncSession, key: str) -> AppSetting | None:
-        return await session.scalar(select(AppSetting).where(AppSetting.key == key))
+        return cast(
+            AppSetting | None,
+            await session.scalar(select(AppSetting).where(AppSetting.key == key)),
+        )
 
     async def session_version(self, session: AsyncSession) -> int:
         setting = await self._setting(session, SESSION_VERSION_KEY)
