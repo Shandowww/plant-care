@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- Permit the standard privilege-drop capabilities Nginx needs when initializing
+  worker-owned runtime directories under AppArmor.
+
 ## 0.2.5
 
 - Permit Nginx to initialize each pre-created temporary directory under the

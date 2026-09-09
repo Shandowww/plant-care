@@ -7,6 +7,10 @@ profile plant_care flags=(attach_disconnected,mediate_deleted) {
 
   network inet stream,
   network inet6 stream,
+  capability chown,
+  capability dac_override,
+  capability setgid,
+  capability setuid,
   /bin/sh ix,
   /run-plantcare.sh rix,
   /usr/bin/jq ix,

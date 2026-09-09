@@ -64,6 +64,9 @@ jobs:
           grep -Fq "/var/lib/nginx/ rw," plant-care/apparmor.txt
           grep -Fq "/var/lib/nginx/tmp/client_body/ rw," plant-care/apparmor.txt
           grep -Fq "/var/lib/nginx/tmp/proxy/ rw," plant-care/apparmor.txt
+          grep -Fq "capability dac_override," plant-care/apparmor.txt
+          grep -Fq "capability setgid," plant-care/apparmor.txt
+          grep -Fq "capability setuid," plant-care/apparmor.txt
           grep -Fq "nginx -e /dev/stderr" plant-care/rootfs/etc/supervisord.conf
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

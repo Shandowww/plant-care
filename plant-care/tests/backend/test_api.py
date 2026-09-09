@@ -24,7 +24,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.2.5",
+        "version": "0.2.6",
         "database": "ready",
         "simulator": True,
     }
