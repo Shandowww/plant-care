@@ -183,3 +183,28 @@ def test_home_assistant_entity_includes_area_and_device_metadata() -> None:
     assert entity is not None
     assert entity.area_name == "Office"
     assert entity.device_id == "device-fern"
+
+
+async def test_home_assistant_metadata_includes_all_areas() -> None:
+    class TemplateResponse:
+        text = """{
+          "entities": [{
+            "entity_id": "sensor.office_fern_moisture",
+            "area_name": "Office",
+            "device_id": "device-fern"
+          }],
+          "areas": ["Kitchen", "Office", "Kitchen"]
+        }"""
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class TemplateClient:
+        async def post(self, *_args: object, **_kwargs: object) -> TemplateResponse:
+            return TemplateResponse()
+
+    client = HomeAssistantClient("token")
+    metadata = await client._entity_metadata(TemplateClient())  # type: ignore[arg-type]
+
+    assert metadata == {"sensor.office_fern_moisture": ("Office", "device-fern")}
+    assert client.areas == ["Kitchen", "Office"]

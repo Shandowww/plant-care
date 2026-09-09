@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- Replace free-text plant locations with Home Assistant area selectors during
+  plant creation and editing.
+- Allow illuminance readings to come from any Home Assistant sensor and suggest
+  an available sensor in the plant's area when its own device has none.
+- Show each sensor's Home Assistant area in entity selectors.
+
 ## 0.3.0
 
 - Add sensor-first plant onboarding with atomic plant and entity mapping.

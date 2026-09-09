@@ -46,11 +46,12 @@ function mockApi(actionFixture = action) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (url.endsWith("/actions/history")) return new Response(JSON.stringify({ events: [] }), { status: 200 });
-    if (url.endsWith("/home-assistant/entities")) return new Response(JSON.stringify({ source: "simulator", entities: [
+    if (url.endsWith("/home-assistant/entities")) return new Response(JSON.stringify({ source: "simulator", areas: ["Bedroom", "Kitchen", "Living room"], entities: [
       { entity_id: "sensor.golden_pothos_soil_moisture", name: "Golden Pothos Soil moisture", device_class: "moisture", state: "18", unit: "%", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.golden_pothos_temperature", name: "Golden Pothos Temperature", device_class: "temperature", state: "24.9", unit: "°C", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.golden_pothos_battery", name: "Golden Pothos Battery", device_class: "battery", state: "67", unit: "%", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.golden_pothos_illuminance", name: "Golden Pothos Illuminance", device_class: "illuminance", state: "unavailable", unit: "lx", area_name: "Kitchen", device_id: "device-pothos" },
+      { entity_id: "sensor.kitchen_motion_illuminance", name: "Kitchen Motion Illuminance", device_class: "illuminance", state: "465", unit: "lx", area_name: "Kitchen", device_id: "device-motion" },
     ] }), { status: 200 });
     if (url.endsWith("/plants/plant-1/entity-mapping") && init?.method === "PATCH") {
       return new Response(String(init.body), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -182,8 +183,10 @@ describe("portal", () => {
     fireEvent.change(await screen.findByLabelText("Soil moisture *"), { target: { value: "sensor.golden_pothos_soil_moisture" } });
     expect(screen.getByLabelText("Friendly name")).toHaveValue("Golden Pothos");
     expect(screen.getByLabelText("Location")).toHaveValue("Kitchen");
+    expect(screen.getByLabelText("Location").tagName).toBe("SELECT");
     expect(screen.getByLabelText("Temperature")).toHaveValue("sensor.golden_pothos_temperature");
     expect(screen.getByLabelText("Battery")).toHaveValue("sensor.golden_pothos_battery");
+    expect(screen.getByLabelText("Illuminance (any sensor)")).toHaveValue("sensor.kitchen_motion_illuminance");
     fireEvent.change(screen.getByLabelText("Friendly name"), { target: { value: "My Kitchen Pothos" } });
     fireEvent.click(screen.getByRole("button", { name: "Add connected plant" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(

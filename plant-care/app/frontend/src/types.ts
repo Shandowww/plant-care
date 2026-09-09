@@ -40,6 +40,7 @@ export interface HomeAssistantEntity {
 export interface HomeAssistantEntityResponse {
   source: "simulator" | "home_assistant";
   entities: HomeAssistantEntity[];
+  areas: string[];
 }
 
 export interface PlantResponse {

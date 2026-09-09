@@ -266,8 +266,14 @@ def create_app(
     ) -> HomeAssistantEntityListResponse:
         del identity
         if app_settings.simulator_enabled:
+            entities = simulator_entities()
             return HomeAssistantEntityListResponse(
-                source="simulator", entities=simulator_entities()
+                source="simulator",
+                entities=entities,
+                areas=sorted(
+                    {entity.area_name for entity in entities if entity.area_name},
+                    key=str.casefold,
+                ),
             )
         try:
             entities = await home_assistant.list_entities()
@@ -277,7 +283,18 @@ def create_app(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Home Assistant entities could not be loaded",
             ) from exc
-        return HomeAssistantEntityListResponse(source="home_assistant", entities=entities)
+        discovered_areas = (
+            home_assistant.areas if isinstance(home_assistant, HomeAssistantClient) else []
+        )
+        return HomeAssistantEntityListResponse(
+            source="home_assistant",
+            entities=entities,
+            areas=discovered_areas
+            or sorted(
+                {entity.area_name for entity in entities if entity.area_name},
+                key=str.casefold,
+            ),
+        )
 
     @application.post(
         "/api/v1/home-assistant/sync",

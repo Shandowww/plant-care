@@ -15,7 +15,7 @@ RELEVANT_DEVICE_CLASSES = {
 }
 
 ENTITY_METADATA_TEMPLATE = """
-{% set ns = namespace(items=[]) %}
+{% set ns = namespace(items=[], area_names=[]) %}
 {% set supported = ['battery', 'humidity', 'illuminance', 'moisture', 'temperature'] %}
 {% for entity in states.sensor %}
   {% if entity.attributes.device_class in supported %}
@@ -26,7 +26,13 @@ ENTITY_METADATA_TEMPLATE = """
     }] %}
   {% endif %}
 {% endfor %}
-{{ ns.items | to_json }}
+{% for area in areas() %}
+  {% set name = area_name(area) %}
+  {% if name %}
+    {% set ns.area_names = ns.area_names + [name] %}
+  {% endif %}
+{% endfor %}
+{{ {'entities': ns.items, 'areas': ns.area_names} | to_json }}
 """.strip()
 
 
@@ -80,6 +86,7 @@ def simulator_entities() -> list[HomeAssistantEntity]:
 class HomeAssistantClient:
     def __init__(self, token: str | None) -> None:
         self.token = token
+        self.areas: list[str] = []
 
     async def list_entities(self) -> list[HomeAssistantEntity]:
         if not self.token:
@@ -105,8 +112,8 @@ class HomeAssistantClient:
                 entities.append(entity)
         return entities
 
-    @staticmethod
     async def _entity_metadata(
+        self,
         client: httpx2.AsyncClient,
     ) -> dict[str, tuple[str | None, str | None]]:
         try:
@@ -118,10 +125,19 @@ class HomeAssistantClient:
             payload = json.loads(response.text)
         except Exception:
             return {}
-        if not isinstance(payload, list):
+        if not isinstance(payload, dict):
+            return {}
+        areas = payload.get("areas")
+        if isinstance(areas, list):
+            self.areas = sorted(
+                {area for area in areas if isinstance(area, str) and area},
+                key=str.casefold,
+            )
+        items = payload.get("entities")
+        if not isinstance(items, list):
             return {}
         result: dict[str, tuple[str | None, str | None]] = {}
-        for item in payload:
+        for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("entity_id"), str):
                 continue
             area_name = item.get("area_name")

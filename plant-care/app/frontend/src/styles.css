@@ -274,6 +274,7 @@ button { color: inherit; }
 .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sensor-grid label { display: grid; gap: 6px; color: #52665b; font-size: 10px; font-weight: 700; }
 .sensor-grid select { width: 100%; height: 42px; padding: 0 9px; color: #334a3e; background: white; border: 1px solid #d8d9d2; border-radius: 7px; font-size: 9px; }
+.sensor-hint { grid-column: 1 / -1; margin: -4px 2px 2px; color: #718178; font-size: 9px; line-height: 1.5; }
 .form-step { grid-column: 1 / -1; margin: 4px 0 0; }
 .photo-placeholder { display: grid; place-items: center; gap: 8px; min-height: 150px; color: #71867a; background: #edf2ec; border: 2px dashed #cbd5cb; border-radius: 11px; font-size: 10px; }
 .mapping-dialog { width: min(100%, 680px); }

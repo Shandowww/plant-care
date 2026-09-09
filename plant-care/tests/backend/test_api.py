@@ -24,7 +24,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.3.0",
+        "version": "0.3.1",
         "database": "ready",
         "simulator": True,
     }
@@ -56,6 +56,13 @@ def test_simulator_exposes_sensor_entity_catalog(development_client: TestClient)
     assert response.status_code == 200
     payload = response.json()
     assert payload["source"] == "simulator"
+    assert payload["areas"] == [
+        "Balcony",
+        "Bedroom",
+        "Kitchen",
+        "Living room",
+        "Outside window",
+    ]
     assert len(payload["entities"]) == 36
     assert any(
         entity["entity_id"] == "sensor.golden_pothos_soil_moisture"

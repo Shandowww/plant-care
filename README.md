@@ -62,7 +62,9 @@ portal preferences, and live diagnostics. Start with `#dashboard`, `#actions`,
 
 When adding a plant, choose its Home Assistant moisture sensor first. PlantCare
 will suggest an editable name and area and preselect temperature, battery, and
-illuminance entities that belong to the same Home Assistant device.
+illuminance entities that belong to the same Home Assistant device. Locations
+are selected from Home Assistant areas; illuminance can instead use any sensor,
+with an available sensor in the same area suggested first.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be

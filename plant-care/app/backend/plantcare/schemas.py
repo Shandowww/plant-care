@@ -36,6 +36,7 @@ class HomeAssistantEntity(BaseModel):
 class HomeAssistantEntityListResponse(BaseModel):
     source: str
     entities: list[HomeAssistantEntity]
+    areas: list[str]
 
 
 class HomeAssistantSyncResponse(BaseModel):

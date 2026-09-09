@@ -13,7 +13,8 @@ its own local database.
 3. Start the app and open it from the Home Assistant sidebar.
 4. Add each plant by selecting its Home Assistant moisture sensor first.
    PlantCare preselects companion entities from the same device and suggests an
-   editable plant name and Home Assistant area.
+   editable plant name and Home Assistant area. Illuminance may be mapped from
+   another sensor in the same area when the plant device does not provide it.
 5. If the standalone LAN view is needed, create its password from the ingress
    session first.
 
