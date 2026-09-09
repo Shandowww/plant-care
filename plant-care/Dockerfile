@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir --upgrade pip==26.2.1 && \
 
 FROM python:3.14-alpine3.22
 ARG BUILD_ARCH
-ARG BUILD_VERSION=0.2.3
+ARG BUILD_VERSION=0.2.4
 
 RUN apk add --no-cache jq nginx supervisor tzdata
 COPY --from=backend-build /opt/venv /opt/venv
@@ -27,7 +27,17 @@ COPY app/backend /app/app/backend
 COPY app/migrations /app/app/migrations
 COPY alembic.ini pyproject.toml /app/
 COPY rootfs /
-RUN chmod +x /run-plantcare.sh && mkdir -p /run/nginx /data
+RUN chmod +x /run-plantcare.sh && \
+    mkdir -p \
+      /run/nginx \
+      /data \
+      /var/lib/nginx/logs \
+      /var/lib/nginx/tmp/client_body \
+      /var/lib/nginx/tmp/proxy \
+      /var/lib/nginx/tmp/fastcgi \
+      /var/lib/nginx/tmp/uwsgi \
+      /var/lib/nginx/tmp/scgi && \
+    chown -R nginx:nginx /var/lib/nginx
 
 LABEL \
   io.hass.name="Plant Care Dashboard" \

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.4
+
+- Pre-create Nginx log and temporary directories with worker ownership.
+- Route Nginx's early error log to stderr and allow its runtime directory roots
+  through AppArmor.
+
 ## 0.2.3
 
 - Allow Python and native-extension shared libraries to be read and mapped by

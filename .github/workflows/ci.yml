@@ -61,6 +61,8 @@ jobs:
           grep -Fq "/usr/bin/supervisord rix," plant-care/apparmor.txt
           grep -Fq "/usr/sbin/nginx ix," plant-care/apparmor.txt
           grep -Fq "/usr/local/lib/** mr," plant-care/apparmor.txt
+          grep -Fq "/var/lib/nginx/ rw," plant-care/apparmor.txt
+          grep -Fq "nginx -e /dev/stderr" plant-care/rootfs/etc/supervisord.conf
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
