@@ -55,6 +55,9 @@ class Plant(Base):
     temperature_status: Mapped[str] = mapped_column(String(32), default="normal")
     battery: Mapped[float | None] = mapped_column(Float, nullable=True)
     illuminance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    photo_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_reading_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     simulator_scenario: Mapped[str | None] = mapped_column(String(64), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

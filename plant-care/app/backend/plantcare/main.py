@@ -6,7 +6,17 @@ from pathlib import Path
 from typing import Annotated
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import case, func, select
@@ -27,6 +37,7 @@ from .models import (
     PlantEntityMapping,
     Reading,
 )
+from .photos import MAX_UPLOAD_BYTES, InvalidPhotoError, photo_path, prepare_photo, store_photo
 from .schemas import (
     ActionHistoryItem,
     ActionHistoryResponse,
@@ -456,6 +467,98 @@ def create_app(
             )
         )
         await session.commit()
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @application.post("/api/v1/plants/{plant_id}/photo", response_model=PlantSummary)
+    async def upload_plant_photo(
+        plant_id: str,
+        photo: Annotated[UploadFile, File()],
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantSummary:
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        try:
+            uploaded = await photo.read(MAX_UPLOAD_BYTES + 1)
+        finally:
+            await photo.close()
+        try:
+            processed = await asyncio.to_thread(prepare_photo, uploaded)
+        except InvalidPhotoError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        target = photo_path(app_settings.data_dir, plant.id)
+        await asyncio.to_thread(store_photo, target, processed)
+        previous_photo = plant.photo_updated_at
+        plant.photo_updated_at = datetime.now(UTC)
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_photo_replaced" if previous_photo else "plant_photo_added",
+                object_type="plant",
+                object_id=plant.id,
+                old_json={"photo_updated_at": previous_photo.isoformat()}
+                if previous_photo
+                else None,
+                new_json={
+                    "photo_updated_at": plant.photo_updated_at.isoformat(),
+                    "stored_bytes": len(processed),
+                },
+            )
+        )
+        await session.commit()
+        await session.refresh(plant)
+        return PlantSummary.model_validate(plant)
+
+    @application.get("/api/v1/plants/{plant_id}/photo", response_class=FileResponse)
+    async def get_plant_photo(
+        plant_id: str, identity: CurrentIdentity, session: Session
+    ) -> FileResponse:
+        del identity
+        plant = await session.get(Plant, plant_id)
+        target = photo_path(app_settings.data_dir, plant_id)
+        if (
+            plant is None
+            or not plant.active
+            or plant.photo_updated_at is None
+            or not target.is_file()
+        ):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+        return FileResponse(
+            target,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @application.delete("/api/v1/plants/{plant_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_plant_photo(
+        plant_id: str, identity: CurrentIdentity, session: Session
+    ) -> Response:
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        if plant.photo_updated_at is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Photo not found")
+        previous_photo = plant.photo_updated_at
+        plant.photo_updated_at = None
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_photo_deleted",
+                object_type="plant",
+                object_id=plant.id,
+                old_json={"photo_updated_at": previous_photo.isoformat()},
+                new_json={"photo_updated_at": None},
+            )
+        )
+        await session.commit()
+        await asyncio.to_thread(photo_path(app_settings.data_dir, plant.id).unlink, missing_ok=True)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @application.get(

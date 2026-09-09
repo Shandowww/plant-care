@@ -82,12 +82,13 @@ class PlantSummary(BaseModel):
     temperature_status: str
     battery: float | None
     illuminance: float | None
+    photo_updated_at: datetime | None
     last_reading_at: datetime | None
     highest_priority_action: str | None = None
     entity_mapping: PlantEntityMappingSummary | None = None
     active: bool
 
-    @field_validator("last_reading_at")
+    @field_validator("last_reading_at", "photo_updated_at")
     @classmethod
     def assume_utc_for_sqlite_timestamp(cls, value: datetime | None) -> datetime | None:
         if value is not None and value.tzinfo is None:

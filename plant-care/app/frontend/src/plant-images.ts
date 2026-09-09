@@ -8,6 +8,11 @@ export interface PlantImage {
 
 const base = "images/plants/";
 
+export function plantPhotoUrl(plant: Plant): string | null {
+  if (!plant.photo_updated_at) return null;
+  return `api/v1/plants/${encodeURIComponent(plant.id)}/photo?v=${encodeURIComponent(plant.photo_updated_at)}`;
+}
+
 const images: Record<string, PlantImage> = {
   "dracaena trifasciata": {
     src: `${base}snake-plant-card.png`,
@@ -37,6 +42,14 @@ const images: Record<string, PlantImage> = {
 };
 
 export function plantImage(plant: Plant): PlantImage | null {
+  const personalPhoto = plantPhotoUrl(plant);
+  if (personalPhoto) {
+    return {
+      src: personalPhoto,
+      alt: `Photo of ${plant.display_name}`,
+      credit: "Private plant photo",
+    };
+  }
   const scientific = plant.scientific_name?.trim().toLocaleLowerCase("en") ?? "";
   if (images[scientific]) return images[scientific];
   if (scientific.startsWith("spathiphyllum")) return images.spathiphyllum ?? null;

@@ -76,6 +76,36 @@ export function updatePlant(plantId: string, payload: PlantCreate): Promise<Plan
   return jsonMutation<Plant>(`/api/v1/plants/${plantId}`, payload, "PATCH");
 }
 
+export async function uploadPlantPhoto(plantId: string, photo: File): Promise<Plant> {
+  const body = new FormData();
+  body.append("photo", photo);
+  const csrf = csrfToken();
+  const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/photo`), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+    },
+    body,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new ApiError(response.status, payload?.detail ?? "The photo could not be saved.");
+  }
+  return (await response.json()) as Plant;
+}
+
+export async function deletePlantPhoto(plantId: string): Promise<void> {
+  const csrf = csrfToken();
+  const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/photo`), {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: csrf ? { "X-CSRF-Token": csrf } : {},
+  });
+  if (!response.ok) throw new ApiError(response.status, "The photo could not be deleted.");
+}
+
 export async function getHomeAssistantEntities(signal?: AbortSignal): Promise<HomeAssistantEntityResponse> {
   const response = await fetch(ingressRelative("/api/v1/home-assistant/entities"), {
     credentials: "same-origin",

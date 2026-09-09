@@ -54,8 +54,8 @@ npm --prefix plant-care/app/frontend run dev
 
 The frontend development server proxies `/api` to `http://127.0.0.1:8000`.
 
-The portal supports dashboard filters and sorting, plant detail and
-photo-flow previews, sensor-first plant creation, edit/archive, care-action
+The portal supports dashboard filters and sorting, plant detail, private local
+plant photos, sensor-first plant creation, edit/archive, care-action
 snooze/complete/undo and visible history,
 portal preferences, and live diagnostics. Start with `#dashboard`, `#actions`,
 `#plants`, `#settings`, or `#help`; navigation updates the hash automatically.
@@ -65,6 +65,10 @@ will suggest an editable name and area and preselect temperature, battery, and
 illuminance entities that belong to the same Home Assistant device. Locations
 are selected from Home Assistant areas; illuminance can instead use any sensor,
 with an available sensor in the same area suggested first.
+
+Plant photos are validated, resized, stripped of embedded metadata, and kept
+under the add-on's `/data` volume. A personal photo automatically replaces the
+bundled species illustration on cards and detail views until it is deleted.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be

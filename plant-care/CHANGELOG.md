@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Add authenticated local plant-photo upload, replacement, retrieval, and
+  permanent deletion.
+- Resize retained photos, convert them to safe JPEGs, and remove embedded image
+  metadata before storing them under the Home Assistant app data directory.
+- Automatically show a personal photo on plant cards and details, with the
+  bundled species image retained as the fallback.
+- Separate private photo management from the clearly labelled Plant Doctor demo.
+
 ## 0.3.1
 
 - Replace free-text plant locations with Home Assistant area selectors during

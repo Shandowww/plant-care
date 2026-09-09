@@ -16,6 +16,7 @@ const plant = {
   temperature_status: "normal",
   battery: 67,
   illuminance: null,
+  photo_updated_at: null,
   last_reading_at: "2026-08-14T09:00:00Z",
   highest_priority_action: "Check soil moisture",
   entity_mapping: null,
@@ -59,6 +60,12 @@ function mockApi(actionFixture = action) {
     if (url.endsWith("/plants/plant-1") && init?.method === "PATCH") {
       return new Response(JSON.stringify({ ...plant, ...JSON.parse(String(init.body)) }), { status: 200 });
     }
+    if (url.endsWith("/plants/plant-1/photo") && init?.method === "POST") {
+      return new Response(JSON.stringify({ ...plant, photo_updated_at: "2026-09-09T18:00:00Z" }), { status: 200 });
+    }
+    if (url.endsWith("/plants/plant-1/photo") && init?.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
     if (url.endsWith("/plants") && init?.method === "POST") {
       const payload = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ ...plant, ...payload, id: "plant-2", state: "sensor_issue", entity_mapping: payload.entity_mapping ?? null }), { status: 201 });
@@ -101,12 +108,49 @@ describe("portal", () => {
     expect(screen.getByRole("dialog", { name: "Golden Pothos" })).toBeInTheDocument();
   });
 
-  it("keeps the card photo action separate from details", async () => {
+  it("opens local photo management separately from details", async () => {
     mockApi();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Check Golden Pothos with a photo" }));
-    expect(screen.getByRole("dialog", { name: "Check Golden Pothos" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Golden Pothos photo" }));
+    expect(screen.getByRole("dialog", { name: "Golden Pothos photo" })).toBeInTheDocument();
+    expect(screen.getByText("No personal photo yet")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
+  });
+
+  it("uploads and deletes a private plant photo", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Golden Pothos photo" }));
+    const photo = new File(["photo bytes"], "pothos.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText(/Choose or take a photo/), { target: { files: [photo] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+    await screen.findByText("Golden Pothos photo was saved locally.");
+    expect(screen.getByRole("img", { name: "Preview of Golden Pothos" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("api/v1/plants/plant-1/photo"),
+    );
+    expect(screen.getByRole("img", { name: "Photo of Golden Pothos" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1/photo",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete photo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+    await screen.findByText("Golden Pothos photo was deleted.");
+    expect(screen.getByText("No personal photo yet")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1/photo",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("labels Plant Doctor as a demo", async () => {
+    mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plant doctor · demo" }));
+    expect(screen.getByRole("dialog", { name: "Check Golden Pothos" })).toBeInTheDocument();
+    expect(screen.getByText("Provider connection pending")).toBeInTheDocument();
   });
 
   it("maps Home Assistant sensor entities from plant details", async () => {

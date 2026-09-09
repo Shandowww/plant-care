@@ -1,7 +1,9 @@
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from plantcare.config import Settings
 from plantcare.main import create_app
 
@@ -24,7 +26,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.3.1",
+        "version": "0.4.0",
         "database": "ready",
         "simulator": True,
     }
@@ -154,6 +156,61 @@ def test_plant_and_sensor_mapping_can_be_created_together(
         "battery_entity_id": "sensor.kitchen_pothos_battery",
         "illuminance_entity_id": None,
     }
+
+
+def test_plant_photo_can_be_added_replaced_and_deleted(
+    development_client: TestClient,
+) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+    source = BytesIO()
+    Image.new("RGB", (2400, 1200), "green").save(source, format="PNG")
+
+    uploaded = development_client.post(
+        f"/api/v1/plants/{plant['id']}/photo",
+        files={"photo": ("plant.png", source.getvalue(), "image/png")},
+    )
+
+    assert uploaded.status_code == 200
+    assert uploaded.json()["photo_updated_at"] is not None
+    stored = development_client.get(f"/api/v1/plants/{plant['id']}/photo")
+    assert stored.status_code == 200
+    assert stored.headers["content-type"] == "image/jpeg"
+    assert stored.headers["cache-control"] == "private, no-store"
+    with Image.open(BytesIO(stored.content)) as processed:
+        assert max(processed.size) == 2048
+        assert not processed.getexif()
+
+    deleted = development_client.delete(f"/api/v1/plants/{plant['id']}/photo")
+    assert deleted.status_code == 204
+    assert development_client.get(f"/api/v1/plants/{plant['id']}/photo").status_code == 404
+    refreshed = development_client.get("/api/v1/plants").json()["plants"]
+    assert next(item for item in refreshed if item["id"] == plant["id"])["photo_updated_at"] is None
+
+
+def test_plant_photo_rejects_non_image_content(development_client: TestClient) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+
+    response = development_client.post(
+        f"/api/v1/plants/{plant['id']}/photo",
+        files={"photo": ("not-a-photo.jpg", b"not an image", "image/jpeg")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "The selected file is not a valid photo."
+
+
+def test_plant_photo_accepts_iphone_heic(development_client: TestClient) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+    source = BytesIO()
+    Image.new("RGB", (32, 32), "green").save(source, format="HEIF")
+
+    response = development_client.post(
+        f"/api/v1/plants/{plant['id']}/photo",
+        files={"photo": ("plant.heic", source.getvalue(), "image/heic")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["photo_updated_at"] is not None
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(

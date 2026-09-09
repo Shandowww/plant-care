@@ -15,7 +15,9 @@ its own local database.
    PlantCare preselects companion entities from the same device and suggests an
    editable plant name and Home Assistant area. Illuminance may be mapped from
    another sensor in the same area when the plant device does not provide it.
-5. If the standalone LAN view is needed, create its password from the ingress
+5. Use the camera button on a plant card or **Manage photo** in its details to
+   take or choose a private plant photo.
+6. If the standalone LAN view is needed, create its password from the ingress
    session first.
 
 ### Alternative local Raspberry Pi installation
@@ -50,6 +52,15 @@ household's existing secure Home Assistant remote-access method.
 All durable state is stored below `/data` and is included in Home Assistant
 backups. No Home Assistant, Telegram, Pl@ntNet, or OpenAI credentials are placed
 in app options.
+
+## Private plant photos
+
+Personal photos remain inside the PlantCare app data directory. Uploads are
+limited to 10 MB and JPEG, PNG, WebP, HEIC, or HEIF input. PlantCare corrects orientation,
+resizes the image to at most 2048 pixels on either side, strips embedded metadata,
+and stores a private JPEG. Replacing or deleting a photo updates the cards and
+details automatically. Plant Doctor remains a separate demo and never sends a
+stored photo externally.
 
 ## Sensor mapping
 

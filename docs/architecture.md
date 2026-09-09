@@ -10,6 +10,11 @@ The React application is compiled to static assets during the container build
 and served by the API. Runtime data, the SQLite WAL, secrets, retained media,
 and migration backups live only under `/data`.
 
+The photo API accepts bounded JPEG, PNG, WebP, HEIC, and HEIF uploads, normalizes them to a
+metadata-free JPEG, and stores one current photo per plant below `/data/photos`.
+Plant responses expose only a cache version timestamp; image bytes remain behind
+the same ingress or LAN authentication boundary as the rest of the API.
+
 Home Assistant Core remains the sole live device source. The Phase 2 REST client
 discovers relevant entities and synchronizes only explicitly mapped entities on
 a guarded background interval. Normalized readings are stored idempotently by

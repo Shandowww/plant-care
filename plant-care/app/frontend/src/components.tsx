@@ -107,7 +107,7 @@ export function PlantCard({ plant, onDetails, onPhoto }: { plant: Plant; onDetai
         <div className="plant-card__footer">
           <span className="last-reading"><Clock3 size={13} aria-hidden="true" />{timeAgo(plant.last_reading_at)}</span>
           <div className="card-actions">
-            <button className="icon-button" type="button" aria-label={`Check ${plant.display_name} with a photo`} onClick={(event) => { event.stopPropagation(); onPhoto(plant); }}>
+            <button className="icon-button" type="button" aria-label={`Manage ${plant.display_name} photo`} onClick={(event) => { event.stopPropagation(); onPhoto(plant); }}>
               <Camera size={17} aria-hidden="true" />
             </button>
             <button className="detail-button" type="button" aria-label={`Open ${plant.display_name} details`} onClick={(event) => { event.stopPropagation(); onDetails(plant); }}>

@@ -1,12 +1,14 @@
 import {
   Bell,
   Check,
+  Camera,
   ChevronDown,
   CircleHelp,
   ClipboardCheck,
   Clock3,
   Grid2X2,
   Leaf,
+  ImagePlus,
   LockKeyhole,
   Menu,
   Plus,
@@ -16,6 +18,7 @@ import {
   SlidersHorizontal,
   Sprout,
   TriangleAlert,
+  Trash2,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -24,6 +27,7 @@ import {
   archivePlant,
   completeAction,
   createPlant,
+  deletePlantPhoto,
   getActionHistory,
   getActions,
   getHealth,
@@ -36,9 +40,10 @@ import {
   undoAction,
   updatePlant,
   updatePlantEntityMapping,
+  uploadPlantPhoto,
 } from "./api";
 import { PlantCard } from "./components";
-import { plantImage } from "./plant-images";
+import { plantImage, plantPhotoUrl } from "./plant-images";
 import type {
   ActionHistoryEvent,
   CareAction,
@@ -97,6 +102,7 @@ function App() {
   const [openMenu, setOpenMenu] = useState<MenuName>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
   const [photoPlant, setPhotoPlant] = useState<Plant | null>(null);
+  const [doctorPlant, setDoctorPlant] = useState<Plant | null>(null);
   const [addPlantOpen, setAddPlantOpen] = useState(false);
   const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
   const [mappingPlant, setMappingPlant] = useState<Plant | null>(null);
@@ -267,6 +273,20 @@ function App() {
     setToast(`${plant.display_name} sensor mapping was updated.`);
   }
 
+  function handlePhotoChanged(updated: Plant, message: string) {
+    const mergePhotoUpdate = (plant: Plant) => ({
+      ...updated,
+      highest_priority_action: plant.highest_priority_action,
+    });
+    setData((current) => current ? {
+      ...current,
+      plants: current.plants.map((plant) => plant.id === updated.id ? mergePhotoUpdate(plant) : plant),
+    } : current);
+    setPhotoPlant((current) => current?.id === updated.id ? mergePhotoUpdate(current) : current);
+    setSelectedPlant((current) => current?.id === updated.id ? mergePhotoUpdate(current) : current);
+    setToast(message);
+  }
+
   async function handleSimulatedWatering(plant: Plant) {
     const updated = await simulateConfirmedWatering(plant.id);
     await Promise.all([refreshPlants(), refreshActions(), refreshActionHistory()]);
@@ -343,8 +363,9 @@ function App() {
         )}
       </main>
 
-      {selectedPlant && <PlantDetailDialog plant={selectedPlant} actions={actions.filter((action) => action.plant_id === selectedPlant.id)} onClose={() => setSelectedPlant(null)} onEdit={() => { setEditingPlant(selectedPlant); setSelectedPlant(null); }} onMapping={() => { setMappingPlant(selectedPlant); setSelectedPlant(null); }} onPhoto={() => { setSelectedPlant(null); setPhotoPlant(selectedPlant); }} onMarkDone={(action) => mutateAction(action, "complete")} onSimulateWatering={() => handleSimulatedWatering(selectedPlant)} />}
-      {photoPlant && <PhotoDialog plant={photoPlant} onClose={() => setPhotoPlant(null)} />}
+      {selectedPlant && <PlantDetailDialog plant={selectedPlant} actions={actions.filter((action) => action.plant_id === selectedPlant.id)} onClose={() => setSelectedPlant(null)} onEdit={() => { setEditingPlant(selectedPlant); setSelectedPlant(null); }} onMapping={() => { setMappingPlant(selectedPlant); setSelectedPlant(null); }} onPhoto={() => { setSelectedPlant(null); setPhotoPlant(selectedPlant); }} onDoctor={() => { setSelectedPlant(null); setDoctorPlant(selectedPlant); }} onMarkDone={(action) => mutateAction(action, "complete")} onSimulateWatering={() => handleSimulatedWatering(selectedPlant)} />}
+      {photoPlant && <PhotoDialog plant={photoPlant} onClose={() => setPhotoPlant(null)} onChanged={handlePhotoChanged} />}
+      {doctorPlant && <DoctorDialog plant={doctorPlant} onClose={() => setDoctorPlant(null)} />}
       {addPlantOpen && <AddPlantDialog onClose={() => setAddPlantOpen(false)} onCreate={handleCreatePlant} />}
       {editingPlant && <EditPlantDialog plant={editingPlant} onClose={() => setEditingPlant(null)} onUpdate={handleUpdatePlant} onArchive={handleArchivePlant} />}
       {mappingPlant && <EntityMappingDialog plant={mappingPlant} onClose={() => setMappingPlant(null)} onSave={handleUpdateMapping} />}
@@ -438,7 +459,7 @@ function SettingsView({ compactCards, onCompactCards, onSaved }: { compactCards:
 
 function HelpView({ health, onRefresh }: { health: HealthResponse | null; onRefresh: () => void }) {
   useEffect(() => { if (!health) void onRefresh(); }, [health, onRefresh]);
-  return <div className="content page-view"><section className="intro"><div><h2>Diagnostics</h2><p>Live checks for the local API, database, and simulator.</p></div><button className="secondary-button" type="button" onClick={onRefresh}><RefreshCw size={16} />Refresh</button></section><section className="diagnostic-card"><div><span className={`health-indicator ${health?.status === "ready" ? "is-ready" : ""}`} /><div><h3>{health?.status === "ready" ? "Portal is ready" : "Checking portal…"}</h3><p>API and database status from <code>/api/v1/health</code>.</p></div></div><dl><div><dt>Version</dt><dd>{health?.version ?? "—"}</dd></div><div><dt>Database</dt><dd>{health?.database ?? "—"}</dd></div><div><dt>Simulator</dt><dd>{health?.simulator ? "Enabled" : "Disabled"}</dd></div></dl></section><section className="settings-card help-card"><h3>What can be tested now?</h3><ul><li>Dashboard filtering, sorting, and status summaries</li><li>Plant detail views and manual simulator plant creation</li><li>Persistent care-action snooze, completion, and undo</li><li>Responsive navigation and shared-password login</li></ul></section></div>;
+  return <div className="content page-view"><section className="intro"><div><h2>Diagnostics</h2><p>Live checks for the local API, database, and simulator.</p></div><button className="secondary-button" type="button" onClick={onRefresh}><RefreshCw size={16} />Refresh</button></section><section className="diagnostic-card"><div><span className={`health-indicator ${health?.status === "ready" ? "is-ready" : ""}`} /><div><h3>{health?.status === "ready" ? "Portal is ready" : "Checking portal…"}</h3><p>API and database status from <code>/api/v1/health</code>.</p></div></div><dl><div><dt>Version</dt><dd>{health?.version ?? "—"}</dd></div><div><dt>Database</dt><dd>{health?.database ?? "—"}</dd></div><div><dt>Simulator</dt><dd>{health?.simulator ? "Enabled" : "Disabled"}</dd></div></dl></section><section className="settings-card help-card"><h3>What can be tested now?</h3><ul><li>Dashboard filtering, sorting, and status summaries</li><li>Plant details, sensor-first creation, and local private photos</li><li>Persistent care-action snooze, completion, and undo</li><li>Responsive navigation and shared-password login</li></ul></section></div>;
 }
 
 function NotificationsMenu({ actions, onClose }: { actions: CareAction[]; onClose: () => void }) {
@@ -449,12 +470,12 @@ function ProfileMenu({ onClose }: { onClose: () => void }) {
   return <div className="popover profile-popover" role="dialog" aria-label="Profile menu"><strong>Home Assistant user</strong><span>Authenticated household member</span><a href="#settings" onClick={onClose}>Portal settings</a><a href="#help" onClick={onClose}>Diagnostics</a></div>;
 }
 
-function PlantDetailDialog({ plant, actions, onClose, onEdit, onMapping, onPhoto, onMarkDone, onSimulateWatering }: { plant: Plant; actions: CareAction[]; onClose: () => void; onEdit: () => void; onMapping: () => void; onPhoto: () => void; onMarkDone: (action: CareAction) => void; onSimulateWatering: () => void }) {
+function PlantDetailDialog({ plant, actions, onClose, onEdit, onMapping, onPhoto, onDoctor, onMarkDone, onSimulateWatering }: { plant: Plant; actions: CareAction[]; onClose: () => void; onEdit: () => void; onMapping: () => void; onPhoto: () => void; onDoctor: () => void; onMarkDone: (action: CareAction) => void; onSimulateWatering: () => void }) {
   const image = plantImage(plant);
   const openActions = actions.filter((action) => action.status !== "completed");
   const hasWateringAction = openActions.some((action) => action.type === "low_moisture");
   const mappedSensors = plant.entity_mapping ? Object.values(plant.entity_mapping).filter(Boolean).length : 0;
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div><strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onPhoto}>Check with photo</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div><strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onPhoto}>Manage photo</button><button className="secondary-button" type="button" onClick={onDoctor}>Plant doctor · demo</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
 }
 
 function EntityMappingDialog({ plant, onClose, onSave }: { plant: Plant; onClose: () => void; onSave: (plant: Plant, mapping: PlantEntityMapping) => Promise<void> }) {
@@ -492,9 +513,51 @@ function entityHasReading(entity: HomeAssistantEntity): boolean {
   return !["", "unknown", "unavailable", "none", "null"].includes(entity.state.trim().toLowerCase());
 }
 
-function PhotoDialog({ plant, onClose }: { plant: Plant; onClose: () => void }) {
+function PhotoDialog({ plant, onClose, onChanged }: { plant: Plant; onClose: () => void; onChanged: (plant: Plant, message: string) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const existingPhoto = plantPhotoUrl(plant);
+  useEffect(() => {
+    if (!file || typeof URL.createObjectURL !== "function") { setPreview(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => { if (typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(url); };
+  }, [file]);
+  async function upload() {
+    if (!file) return;
+    setSaving(true); setMessage(null);
+    try {
+      const updated = await uploadPlantPhoto(plant.id, file);
+      setFile(null);
+      onChanged(updated, `${plant.display_name} photo was saved locally.`);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "The photo could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function remove() {
+    setSaving(true); setMessage(null);
+    try {
+      await deletePlantPhoto(plant.id);
+      const updated = { ...plant, photo_updated_at: null };
+      setConfirmDelete(false);
+      onChanged(updated, `${plant.display_name} photo was deleted.`);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "The photo could not be deleted.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog photo-dialog" role="dialog" aria-modal="true" aria-labelledby="photo-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant photo" onClick={onClose}><X /></button><p className="eyebrow">PRIVATE · STORED LOCALLY</p><h2 id="photo-dialog-title">{plant.display_name} photo</h2><p className="dialog-subtitle">Take a photo or choose one from this device. PlantCare resizes it, removes embedded metadata, and keeps it in the Home Assistant add-on data.</p><div className={`photo-editor-preview ${preview || existingPhoto ? "photo-editor-preview--image" : ""}`}>{preview || existingPhoto ? <img src={preview ?? existingPhoto ?? ""} alt={`Preview of ${plant.display_name}`} /> : <><Camera /><strong>No personal photo yet</strong><span>The species illustration remains visible until you add one.</span></>}</div><label className="photo-picker"><ImagePlus size={18} /><span><strong>{existingPhoto ? "Choose a replacement" : "Choose or take a photo"}</strong><small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small></span><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>{file && <p className="selected-photo">Selected: {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB</p>}{message && <p className="inline-error" role="alert">{message}</p>}{confirmDelete && <div className="photo-delete-confirm" role="alertdialog" aria-label="Delete plant photo"><p>Delete this private photo? The bundled species image will be used again.</p><button className="secondary-button" type="button" onClick={() => setConfirmDelete(false)}>Keep photo</button><button className="danger-button" type="button" disabled={saving} onClick={remove}>Delete permanently</button></div>}<div className="dialog__footer photo-dialog__footer">{existingPhoto && !confirmDelete && <button className="danger-button" type="button" disabled={saving} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />Delete photo</button>}<span /><button className="secondary-button" type="button" onClick={onClose}>Close</button><button className="primary-button" type="button" disabled={!file || saving} onClick={upload}>{saving ? "Saving…" : existingPhoto ? "Replace photo" : "Save photo"}</button></div></section></div>;
+}
+
+function DoctorDialog({ plant, onClose }: { plant: Plant; onClose: () => void }) {
   const [demo, setDemo] = useState(false);
-  return <div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="photo-dialog-title"><button className="dialog__close" type="button" aria-label="Close photo check" onClick={onClose}><X /></button><p className="eyebrow">PRIVATE PHOTO CHECK</p><h2 id="photo-dialog-title">Check {plant.display_name}</h2>{demo ? <div className="demo-result"><Check /><h3>Demo capture flow works</h3><p>No image was uploaded. Provider-backed health assessment and private photo retention arrive in Phase 5.</p></div> : <><p className="dialog-subtitle">Test the consent and capture entry point without sending a real image.</p><div className="photo-placeholder"><Leaf /><span>Camera or photo picker</span></div><label className="consent-row"><input type="checkbox" required />I understand a future provider may process the selected image.</label></>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button>{!demo && <button className="primary-button" type="button" onClick={() => setDemo(true)}>Run demo check</button>}</div></section></div>;
+  return <div className="dialog-backdrop" role="presentation"><section className="dialog" role="dialog" aria-modal="true" aria-labelledby="doctor-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant doctor" onClick={onClose}><X /></button><p className="eyebrow">PLANT DOCTOR · DEMO</p><h2 id="doctor-dialog-title">Check {plant.display_name}</h2>{demo ? <div className="demo-result"><Check /><h3>Demo assessment flow works</h3><p>No photo was sent externally. A vision provider must be configured before Plant Doctor can perform a real assessment.</p></div> : <><p className="dialog-subtitle">This preview does not send your locally stored plant photo to a provider.</p><div className="photo-placeholder"><Leaf /><span>Provider connection pending</span></div><label className="consent-row"><input type="checkbox" required />I understand a future provider may process the selected image.</label></>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Close</button>{!demo && <button className="primary-button" type="button" onClick={() => setDemo(true)}>Run demo check</button>}</div></section></div>;
 }
 
 function suggestedPlantName(entity: HomeAssistantEntity): string {

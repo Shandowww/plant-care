@@ -14,6 +14,7 @@ export interface Plant {
   temperature_status: string;
   battery: number | null;
   illuminance: number | null;
+  photo_updated_at: string | null;
   last_reading_at: string | null;
   highest_priority_action: string | null;
   entity_mapping: PlantEntityMapping | null;
