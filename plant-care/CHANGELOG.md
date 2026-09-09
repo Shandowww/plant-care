@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Allow the root-level startup script through the Home Assistant AppArmor
+  profile and preserve its executable file mode.
+
 ## 0.2.0
 
 - Synchronize mapped Home Assistant entities on a guarded background interval.

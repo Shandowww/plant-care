@@ -51,6 +51,10 @@ jobs:
         arch: [amd64, aarch64]
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Home Assistant startup permissions
+        run: |
+          test -x plant-care/rootfs/run-plantcare.sh
+          grep -Fq "/run-plantcare.sh rix," plant-care/apparmor.txt
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
