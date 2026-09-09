@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Allow Python and native-extension shared libraries to be read and mapped by
+  the confined runtime.
+
 ## 0.2.2
 
 - Permit the complete startup process tree and its read-only runtime files in
