@@ -55,6 +55,11 @@ jobs:
         run: |
           test -x plant-care/rootfs/run-plantcare.sh
           grep -Fq "/run-plantcare.sh rix," plant-care/apparmor.txt
+          grep -Fq "/usr/bin/jq ix," plant-care/apparmor.txt
+          grep -Fq "/opt/venv/bin/alembic rix," plant-care/apparmor.txt
+          grep -Fq "/opt/venv/bin/uvicorn rix," plant-care/apparmor.txt
+          grep -Fq "/usr/bin/supervisord rix," plant-care/apparmor.txt
+          grep -Fq "/usr/sbin/nginx ix," plant-care/apparmor.txt
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6

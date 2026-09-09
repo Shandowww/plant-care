@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Permit the complete startup process tree and its read-only runtime files in
+  the Home Assistant AppArmor profile.
+
 ## 0.2.1
 
 - Allow the root-level startup script through the Home Assistant AppArmor
