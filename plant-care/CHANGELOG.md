@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Permit Nginx to initialize each pre-created temporary directory under the
+  confined Home Assistant runtime.
+
 ## 0.2.4
 
 - Pre-create Nginx log and temporary directories with worker ownership.
