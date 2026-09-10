@@ -6,8 +6,8 @@
   range, with transparent indoor/outdoor fallbacks for unidentified plants.
 - Clarify that the displayed range is guidance and is not yet an automated
   temperature alert threshold.
-- Apply Ruff formatting required by CI and update `js-yaml` to its patched
-  release so the high-severity npm audit check passes.
+- Apply Ruff formatting and strict typing required by clean CI runners, and
+  update `js-yaml` so the high-severity npm audit check passes.
 
 ## 0.6.0
 

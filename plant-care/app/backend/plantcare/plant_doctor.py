@@ -196,9 +196,12 @@ def _assessment(raw_response: str, neurons: float | None) -> PlantDoctorResponse
             neurons=neurons,
             disclaimer=DISCLAIMER,
         )
-    confidence = parsed.get("confidence")
-    if confidence not in {"low", "medium", "high"}:
-        confidence = "low"
+    raw_confidence = parsed.get("confidence")
+    confidence: Literal["low", "medium", "high"] = "low"
+    if raw_confidence == "medium":
+        confidence = "medium"
+    elif raw_confidence == "high":
+        confidence = "high"
     return PlantDoctorResponse(
         summary=_clean_text(parsed.get("summary"), "Visual assessment completed."),
         observations=_clean_list(parsed.get("observations")),
