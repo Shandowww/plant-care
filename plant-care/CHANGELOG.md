@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1
+
+- Make each plant-card temperature reading expandable to show a typical species
+  range, with transparent indoor/outdoor fallbacks for unidentified plants.
+- Clarify that the displayed range is guidance and is not yet an automated
+  temperature alert threshold.
+- Apply Ruff formatting required by CI and update `js-yaml` to its patched
+  release so the high-severity npm audit check passes.
+
 ## 0.6.0
 
 - Save successful Plant Doctor assessments locally as compact per-plant patient

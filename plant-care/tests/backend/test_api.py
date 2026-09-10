@@ -56,7 +56,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.6.0",
+        "version": "0.6.1",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -387,9 +387,7 @@ def test_plant_doctor_provider_errors_are_actionable(
             f"/api/v1/plants/{plant['id']}/photo",
             files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
         )
-        response = client.post(
-            f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
-        )
+        response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
 
     assert response.status_code == expected_status
     assert message in response.json()["detail"]

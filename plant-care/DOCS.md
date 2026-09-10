@@ -119,3 +119,8 @@ marks the mapping unavailable and never deletes the plant.
 `unknown`, `unavailable`, empty, non-numeric, wrong-unit, and out-of-range states
 are not stored as measurements and do not overwrite the last known good value.
 Repeated synchronization is idempotent using the Home Assistant update time.
+
+On a plant card, select the temperature reading to reveal its typical normal
+range. Identified plants use a species profile; unidentified plants show a
+clearly labelled general indoor or outdoor fallback. These ranges are guidance
+only and do not currently trigger care actions or notifications.

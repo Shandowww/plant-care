@@ -8,6 +8,7 @@ import {
   Thermometer,
   WifiOff,
 } from "lucide-react";
+import { useState } from "react";
 import type { Plant, PlantState } from "./types";
 import { plantImage } from "./plant-images";
 
@@ -26,6 +27,31 @@ const visualVariant: Record<string, string> = {
   "Olive Tree": "tree",
   "Peace Lily": "flower",
 };
+
+type TemperatureProfile = { minimum: number; maximum: number; note: string };
+
+const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
+  "epipremnum aureum": { minimum: 18, maximum: 29, note: "Typical range for golden pothos" },
+  "monstera deliciosa": { minimum: 18, maximum: 30, note: "Typical range for Monstera deliciosa" },
+  "olea europaea": { minimum: 10, maximum: 30, note: "Broad typical range for a potted olive tree" },
+  "dracaena trifasciata": { minimum: 15, maximum: 29, note: "Typical range for a snake plant" },
+  spathiphyllum: { minimum: 18, maximum: 29, note: "Typical range for a peace lily" },
+};
+
+function temperatureProfile(plant: Plant): TemperatureProfile {
+  const scientificName = plant.scientific_name?.trim().toLowerCase();
+  if (scientificName) {
+    const exact = speciesTemperatureProfiles[scientificName];
+    if (exact) return exact;
+    const genus = Object.entries(speciesTemperatureProfiles).find(([name]) =>
+      scientificName.startsWith(`${name} `),
+    );
+    if (genus) return genus[1];
+  }
+  return plant.environment_type === "indoor"
+    ? { minimum: 18, maximum: 29, note: "General indoor fallback until the species is confirmed" }
+    : { minimum: 5, maximum: 35, note: "General outdoor fallback until the species is confirmed" };
+}
 
 function timeAgo(value: string | null): string {
   if (!value) return "No valid reading";
@@ -58,6 +84,9 @@ function BotanicalVisual({ plant }: { plant: Plant }) {
 export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plant: Plant) => void }) {
   const state = stateContent[plant.state];
   const StateIcon = state.icon;
+  const [temperatureOpen, setTemperatureOpen] = useState(false);
+  const preferredTemperature = temperatureProfile(plant);
+  const temperatureRangeId = `temperature-range-${plant.id}`;
   return (
     <article className={`plant-card plant-card--${plant.state}`} aria-labelledby={`plant-${plant.id}`} onClick={() => onDetails(plant)}>
       <div className="plant-card__visual">
@@ -81,14 +110,30 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
             <Droplets size={17} aria-hidden="true" />
             <span><strong>{plant.moisture === null ? "—" : `${plant.moisture}%`}</strong>Moisture</span>
           </div>
-          <div className={`reading reading--${plant.temperature_status}`}>
+          <button
+            className={`reading reading-button reading--${plant.temperature_status}`}
+            type="button"
+            aria-label={`Temperature ${plant.temperature === null ? "unavailable" : `${plant.temperature.toFixed(1)} degrees Celsius`}; show normal range`}
+            aria-expanded={temperatureOpen}
+            aria-controls={temperatureRangeId}
+            onClick={(event) => {
+              event.stopPropagation();
+              setTemperatureOpen((open) => !open);
+            }}
+          >
             <Thermometer size={17} aria-hidden="true" />
             <span><strong>{plant.temperature === null ? "—" : `${plant.temperature.toFixed(1)}°`}</strong>Local temp</span>
-          </div>
+          </button>
           <div className={`reading ${plant.battery !== null && plant.battery < 20 ? "reading--low" : ""}`}>
             <BatteryMedium size={17} aria-hidden="true" />
             <span><strong>{plant.battery === null ? "—" : `${plant.battery}%`}</strong>Battery</span>
           </div>
+          {temperatureOpen && (
+            <div className="temperature-range-note" id={temperatureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
+              <strong>Normal temperature range: {preferredTemperature.minimum}–{preferredTemperature.maximum}°C</strong>
+              <span>{preferredTemperature.note}. Guidance only; temperature alerts are not automated yet.</span>
+            </div>
+          )}
         </div>
 
         {plant.highest_priority_action ? (

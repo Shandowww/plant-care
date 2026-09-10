@@ -127,7 +127,7 @@ function mockApi(actionFixture = action, plantFixture = plant) {
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.6.0", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.6.1", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -160,6 +160,18 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("article", { name: "Golden Pothos" }));
     expect(screen.getByRole("dialog", { name: "Golden Pothos" })).toBeInTheDocument();
+  });
+
+  it("shows the normal temperature range without opening plant details", async () => {
+    mockApi();
+    render(<App />);
+    const temperature = await screen.findByRole("button", {
+      name: "Temperature 24.2 degrees Celsius; show normal range",
+    });
+    fireEvent.click(temperature);
+    expect(screen.getByText("Normal temperature range: 18–29°C")).toBeInTheDocument();
+    expect(screen.getByText(/Typical range for golden pothos/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
   });
 
   it("keeps photo management inside Edit plant", async () => {
