@@ -61,7 +61,9 @@ Personal photos remain inside the PlantCare app data directory. Uploads are
 limited to 10 MB and JPEG, PNG, WebP, HEIC, or HEIF input. PlantCare corrects orientation,
 resizes the image to at most 2048 pixels on either side, strips embedded metadata,
 and stores a private JPEG. Replacing or removing a photo is part of **Edit
-plant**, and cards and details update automatically.
+plant**, and cards and details update automatically. On iPhone and iPad, the
+system picker offers the photo library, camera, and files rather than opening
+the camera automatically.
 
 ## Optional Plant Doctor
 

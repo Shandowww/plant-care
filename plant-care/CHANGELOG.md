@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Let iPhone and iPad users choose between their photo library, camera, and
+  files instead of forcing the rear camera when selecting a plant photo.
+
 ## 0.5.1
 
 - Show the number of successful Plant Doctor checks completed by this

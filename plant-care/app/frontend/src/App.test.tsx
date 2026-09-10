@@ -99,7 +99,7 @@ function mockApi(actionFixture = action, plantFixture = plant) {
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.5.1", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.5.2", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -143,6 +143,7 @@ describe("portal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit plant" }));
     expect(screen.getByRole("group", { name: "Plant photo" })).toBeInTheDocument();
     expect(screen.getByText("Using the bundled species illustration")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Choose or take a photo/)).not.toHaveAttribute("capture");
   });
 
   it("uploads and deletes a private plant photo", async () => {
