@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     static_dir: Path = Path("/app/frontend")
     log_level: str = "info"
     sync_interval_seconds: int = Field(default=30, ge=5, le=3600)
+    stale_sensor_hours: int = Field(default=72, ge=24, le=720)
+    home_assistant_notifications: bool = True
     supervisor_token: str | None = Field(
         default=None,
         validation_alias=AliasChoices("SUPERVISOR_TOKEN", "PLANTCARE_SUPERVISOR_TOKEN"),

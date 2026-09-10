@@ -1,5 +1,5 @@
 name: Plant Care Dashboard
-version: "0.7.0"
+version: "0.8.0"
 slug: plant_care
 description: Local-first plant sensor guidance and shared care actions
 url: https://github.com/Shandowww/plant-care
@@ -28,9 +28,13 @@ backup: hot
 stage: experimental
 options:
   log_level: info
+  stale_sensor_hours: 72
+  home_assistant_notifications: true
   cloudflare_account_id: ""
   cloudflare_api_token: ""
 schema:
   log_level: list(debug|info|warning|error)
+  stale_sensor_hours: "int(24,720)"
+  home_assistant_notifications: bool
   cloudflare_account_id: str
   cloudflare_api_token: password

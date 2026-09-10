@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 import structlog
 from fastapi import (
@@ -28,7 +29,11 @@ from . import __version__
 from .auth import AuthService, Identity, ensure_ingress
 from .config import Settings, get_settings
 from .database import Database
-from .home_assistant import HomeAssistantClient, simulator_entities
+from .home_assistant import (
+    HomeAssistantClient,
+    HomeAssistantNotificationSink,
+    simulator_entities,
+)
 from .models import (
     ActionStatus,
     AppSetting,
@@ -94,12 +99,21 @@ def create_app(
     settings: Settings | None = None,
     home_assistant_client: HomeAssistantStateSource | None = None,
     plant_doctor_client: PlantDoctorSource | None = None,
+    home_assistant_notifier: HomeAssistantNotificationSink | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     app_settings.data_dir.mkdir(parents=True, exist_ok=True)
     database = Database(app_settings)
     auth = AuthService(app_settings)
     home_assistant = home_assistant_client or HomeAssistantClient(app_settings.supervisor_token)
+    notification_sink = home_assistant_notifier
+    if notification_sink is None and isinstance(home_assistant, HomeAssistantClient):
+        notification_sink = home_assistant
+    notifications_enabled = (
+        app_settings.home_assistant_notifications
+        and not app_settings.simulator_enabled
+        and notification_sink is not None
+    )
     cloudflare_token = (
         app_settings.cloudflare_api_token.get_secret_value().strip()
         if app_settings.cloudflare_api_token
@@ -115,7 +129,35 @@ def create_app(
 
     async def sync_once() -> SyncResult:
         async with sync_lock, database.session_factory() as sync_session:
-            return await sync_mapped_readings(sync_session, home_assistant)
+            result = await sync_mapped_readings(
+                sync_session,
+                home_assistant,
+                stale_after=timedelta(hours=app_settings.stale_sensor_hours),
+            )
+        if notifications_enabled and notification_sink is not None:
+            for event in result.notification_events:
+                try:
+                    if event.operation == "dismiss":
+                        await notification_sink.dismiss_persistent_notification(
+                            notification_id=event.notification_id
+                        )
+                        continue
+                    ingress_url = await notification_sink.ingress_url()
+                    plant_url = f"{ingress_url}#plants/{quote(event.plant_id, safe='')}"
+                    message = f"{event.message}\n\n[Open this plant in PlantCare]({plant_url})"
+                    await notification_sink.create_persistent_notification(
+                        notification_id=event.notification_id,
+                        title=event.title or "PlantCare sensor warning",
+                        message=message,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "home_assistant_notification_failed",
+                        operation=event.operation,
+                        plant_id=event.plant_id,
+                        error=type(exc).__name__,
+                    )
+        return result
 
     async def sync_loop() -> None:
         while True:
@@ -191,6 +233,8 @@ def create_app(
             database="ready",
             simulator=app_settings.simulator_enabled,
             plant_doctor_configured=plant_doctor is not None,
+            home_assistant_notifications_enabled=notifications_enabled,
+            stale_sensor_hours=app_settings.stale_sensor_hours,
         )
 
     @application.get("/api/v1/auth/session", response_model=SessionResponse)
@@ -361,7 +405,12 @@ def create_app(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Home Assistant readings could not be synchronized",
             ) from exc
-        return HomeAssistantSyncResponse(**result.__dict__)
+        return HomeAssistantSyncResponse(
+            plants_checked=result.plants_checked,
+            readings_added=result.readings_added,
+            invalid_readings=result.invalid_readings,
+            missing_entities=result.missing_entities,
+        )
 
     @application.patch(
         "/api/v1/plants/{plant_id}/entity-mapping",

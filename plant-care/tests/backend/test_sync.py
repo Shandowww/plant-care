@@ -1,6 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import plantcare.home_assistant as home_assistant_module
+import pytest
 from fastapi.testclient import TestClient
 from plantcare.config import Settings
 from plantcare.home_assistant import HomeAssistantClient
@@ -51,7 +53,30 @@ class FakeHomeAssistant:
         return self.entities
 
 
-def production_client(tmp_path: Path, source: FakeHomeAssistant) -> TestClient:
+class FakeHomeAssistantNotifier:
+    def __init__(self) -> None:
+        self.created: list[dict[str, str]] = []
+        self.dismissed: list[str] = []
+
+    async def ingress_url(self) -> str:
+        return "/api/hassio_ingress/test-session/"
+
+    async def create_persistent_notification(
+        self, *, notification_id: str, title: str, message: str
+    ) -> None:
+        self.created.append(
+            {"notification_id": notification_id, "title": title, "message": message}
+        )
+
+    async def dismiss_persistent_notification(self, *, notification_id: str) -> None:
+        self.dismissed.append(notification_id)
+
+
+def production_client(
+    tmp_path: Path,
+    source: FakeHomeAssistant,
+    notifier: FakeHomeAssistantNotifier | None = None,
+) -> TestClient:
     settings = Settings(
         environment="production",
         auth_mode="enabled",
@@ -62,7 +87,11 @@ def production_client(tmp_path: Path, source: FakeHomeAssistant) -> TestClient:
         sync_interval_seconds=3600,
     )
     return TestClient(
-        create_app(settings, home_assistant_client=source),
+        create_app(
+            settings,
+            home_assistant_client=source,
+            home_assistant_notifier=notifier,
+        ),
         headers={
             "x-plantcare-surface": "ingress",
             "x-remote-user-name": "Test User",
@@ -176,6 +205,8 @@ def test_home_assistant_entity_includes_area_and_device_metadata() -> None:
                 "device_class": "moisture",
                 "unit_of_measurement": "%",
             },
+            "last_changed": "2026-08-15T08:25:00Z",
+            "last_updated": "2026-08-15T08:30:00Z",
         },
         ("Office", "device-fern"),
     )
@@ -183,6 +214,74 @@ def test_home_assistant_entity_includes_area_and_device_metadata() -> None:
     assert entity is not None
     assert entity.area_name == "Office"
     assert entity.device_id == "device-fern"
+    assert entity.last_changed == datetime(2026, 8, 15, 8, 25, tzinfo=UTC)
+
+
+def test_unchanged_sensor_creates_notification_and_recovers(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    now = datetime.now(UTC)
+    source.entities[0] = source.entities[0].model_copy(
+        update={
+            "last_changed": now - timedelta(hours=73),
+            "last_updated": now,
+        }
+    )
+    source.entities[2] = source.entities[2].model_copy(
+        update={
+            "last_changed": now - timedelta(days=10),
+            "last_updated": now,
+        }
+    )
+
+    with production_client(tmp_path, source, notifier) as client:
+        plant = client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Office Fern",
+                "location": "Office",
+                "common_name": "Boston fern",
+                "scientific_name": "Nephrolepis exaltata",
+                "environment_type": "indoor",
+                "entity_mapping": {
+                    "moisture_entity_id": "sensor.fern_moisture",
+                    "battery_entity_id": "sensor.fern_battery",
+                },
+            },
+        ).json()
+
+        synchronized = client.post("/api/v1/home-assistant/sync")
+
+        assert synchronized.status_code == 200
+        refreshed = client.get("/api/v1/plants").json()["plants"][0]
+        assert refreshed["state"] == "sensor_issue"
+        actions = client.get("/api/v1/actions").json()["actions"]
+        assert len(actions) == 1
+        assert actions[0]["type"] == "sensor_issue"
+        assert actions[0]["title"] == "Check moisture sensor"
+        assert "73 hours" in actions[0]["observation"]
+        assert len(notifier.created) == 1
+        assert "PlantCare: Office Fern sensor warning" == notifier.created[0]["title"]
+        assert (
+            f"/api/hassio_ingress/test-session/#plants/{plant['id']}"
+            in notifier.created[0]["message"]
+        )
+        assert "battery" not in actions[0]["title"].lower()
+
+        repeated = client.post("/api/v1/home-assistant/sync")
+        assert repeated.status_code == 200
+        assert len(notifier.created) == 1
+
+        source.entities[0] = source.entities[0].model_copy(
+            update={"state": "43", "last_changed": now, "last_updated": now}
+        )
+        recovered = client.post("/api/v1/home-assistant/sync")
+
+        assert recovered.status_code == 200
+        completed = client.get("/api/v1/actions").json()["actions"][0]
+        assert completed["status"] == "completed"
+        assert completed["completed_by"] == "Automatic sensor recovery"
+        assert notifier.dismissed == [notifier.created[0]["notification_id"]]
 
 
 async def test_home_assistant_metadata_includes_all_areas() -> None:
@@ -208,3 +307,66 @@ async def test_home_assistant_metadata_includes_all_areas() -> None:
 
     assert metadata == {"sensor.office_fern_moisture": ("Office", "device-fern")}
     assert client.areas == ["Kitchen", "Office"]
+
+
+async def test_home_assistant_notification_services_and_ingress_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object] | None = None) -> None:
+            self.payload = payload or {}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self.payload
+
+    class FakeAsyncClient:
+        def __init__(self, *, base_url: str, **_kwargs: object) -> None:
+            self.base_url = base_url
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, path: str) -> FakeResponse:
+            requests.append((self.base_url, path, None))
+            return FakeResponse({"data": {"ingress_url": "/api/hassio_ingress/session"}})
+
+        async def post(self, path: str, *, json: dict[str, object]) -> FakeResponse:
+            requests.append((self.base_url, path, json))
+            return FakeResponse()
+
+    monkeypatch.setattr(home_assistant_module.httpx2, "AsyncClient", FakeAsyncClient)
+    client = HomeAssistantClient("supervisor-token")
+
+    assert await client.ingress_url() == "/api/hassio_ingress/session/"
+    await client.create_persistent_notification(
+        notification_id="plantcare_sensor",
+        title="Sensor warning",
+        message="Open PlantCare",
+    )
+    await client.dismiss_persistent_notification(notification_id="plantcare_sensor")
+
+    assert requests == [
+        ("http://supervisor/", "addons/self/info", None),
+        (
+            "http://supervisor/core/api/",
+            "services/persistent_notification/create",
+            {
+                "notification_id": "plantcare_sensor",
+                "title": "Sensor warning",
+                "message": "Open PlantCare",
+            },
+        ),
+        (
+            "http://supervisor/core/api/",
+            "services/persistent_notification/dismiss",
+            {"notification_id": "plantcare_sensor"},
+        ),
+    ]

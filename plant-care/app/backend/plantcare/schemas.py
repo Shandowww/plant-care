@@ -30,6 +30,7 @@ class HomeAssistantEntity(BaseModel):
     unit: str | None
     area_name: str | None = None
     device_id: str | None = None
+    last_changed: datetime | None = None
     last_updated: datetime | None = None
 
 
@@ -194,6 +195,8 @@ class HealthResponse(BaseModel):
     database: str
     simulator: bool
     plant_doctor_configured: bool
+    home_assistant_notifications_enabled: bool
+    stale_sensor_hours: int
 
 
 class LoginRequest(BaseModel):

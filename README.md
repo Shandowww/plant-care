@@ -55,8 +55,8 @@ npm --prefix plant-care/app/frontend run dev
 The frontend development server proxies `/api` to `http://127.0.0.1:8000`.
 
 The portal supports dashboard filters and sorting, plant detail, private local
-plant photos, an optional consent-based Plant Doctor, sensor-first plant creation, edit/archive, care-action
-snooze/complete/undo and visible history,
+plant photos, an optional consent-based Plant Doctor, sensor-first plant
+creation, edit/archive, care-action history, Home Assistant sensor notifications,
 portal preferences, and live diagnostics. Start with `#dashboard`, `#actions`,
 `#plants`, `#settings`, or `#help`; navigation updates the hash automatically.
 
@@ -74,15 +74,22 @@ the general Edit plant form.
 Plant Doctor can use the installation owner's Cloudflare Workers AI credentials.
 The Account ID and API token are configured in Home Assistant app options, never
 in this repository or in browser code. A photo and limited sensor context are
-sent only after consent for each check; the result is not persisted and cannot
-change care automatically. After reviewing the result, the user can explicitly
-add its safe next checks to the care queue as a labelled AI recommendation.
+sent only after consent for each check. Assessment summaries and user feedback
+are saved locally as patient history, while diagnostic photos are not retained.
+After reviewing the result, the user can explicitly add its safe next checks to
+the care queue as a labelled AI recommendation.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be
 treated as a broken mapping, not as permission to erase the plant or its history.
 The simulator's **Simulate confirmed watering** control demonstrates automatic
 completion of a low-moisture action after confirmed recovery.
+
+In the Home Assistant app, mapped moisture, temperature, and illuminance values
+that remain unchanged for 72 hours create a sensor issue and a persistent Home
+Assistant notification with a direct link to that plant. Both the threshold and
+notification delivery are configurable in the app options. Battery values are
+excluded because slow battery changes are expected.
 
 ## Validation
 

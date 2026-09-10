@@ -135,3 +135,31 @@ Plant details also include a bundled care guide. Identified plants receive a
 different species-specific featured tip on each visit, with controls to shuffle
 again or expand all tips. Unidentified plants receive clearly labelled general
 indoor or outdoor container guidance until their species is entered.
+
+## Sensor responsiveness and Home Assistant notifications
+
+PlantCare checks Home Assistant's value-change timestamp for every mapped
+moisture, temperature, and illuminance entity. When a valid sensor value has not
+changed for 72 hours, the plant is marked **Sensor issue** and a deduplicated
+**Check sensor** action is added to the care queue. The action remains
+sensor-managed and completes automatically once Home Assistant reports a fresh
+value change. Battery entities are deliberately excluded because a healthy
+battery percentage can legitimately remain unchanged for days or weeks.
+
+The threshold can be changed from 24 to 720 hours under **Home Assistant →
+Settings → Apps → Plant Care Dashboard → Configuration** using
+`stale_sensor_hours`. The monitor uses 72 hours by default. Restart the app after
+changing an app option.
+
+`home_assistant_notifications` is enabled by default. A newly detected sensor
+issue creates one persistent notification in Home Assistant using the Supervisor
+token already injected into the app; no webhook, long-lived access token, or
+Telegram setup is required. The notification contains a link that opens
+PlantCare directly on the affected plant card. When the sensor value changes and
+the issue closes, PlantCare dismisses the matching notification automatically.
+Delivery can be disabled in the same app configuration screen.
+
+Persistent notifications appear in Home Assistant's notification panel rather
+than as direct iOS or Android push alerts. A future mobile-notify option can send
+the same event to selected Home Assistant Companion App notify entities without
+changing the sensor monitor or storing additional credentials.

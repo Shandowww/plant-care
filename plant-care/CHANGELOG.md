@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+- Detect mapped moisture, temperature, and illuminance sensors whose value has
+  not changed for a configurable 72 hours, create a deduplicated sensor issue,
+  and complete it automatically after a fresh value change.
+- Send new sensor warnings to Home Assistant as persistent notifications using
+  the app's injected Supervisor token; no additional notification credentials
+  are required.
+- Include a notification link that opens PlantCare directly on the affected
+  plant, and dismiss the Home Assistant notification after sensor recovery.
+- Show the active sensor timeout and Home Assistant notification state in
+  PlantCare settings and diagnostics. Battery values are excluded from the
+  unchanged-value rule to prevent expected slow battery changes causing alerts.
+
 ## 0.7.0
 
 - Add a polished care-tips section to plant details with species-specific

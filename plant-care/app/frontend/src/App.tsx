@@ -89,10 +89,16 @@ const viewTitles: Record<View, string> = {
 };
 
 function viewFromHash(): View {
-  const value = window.location.hash.slice(1);
+  const value = window.location.hash.slice(1).split("/", 1)[0];
   return value === "actions" || value === "plants" || value === "settings" || value === "help"
     ? value
     : "dashboard";
+}
+
+function plantIdFromHash(): string | null {
+  const match = window.location.hash.match(/^#plants\/([^/?#]+)$/);
+  if (!match?.[1]) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
 }
 
 function LoadingGrid() {
@@ -111,6 +117,7 @@ function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [requiresLogin, setRequiresLogin] = useState(false);
   const [view, setView] = useState<View>(viewFromHash);
+  const [linkedPlantId, setLinkedPlantId] = useState<string | null>(plantIdFromHash);
   const [openMenu, setOpenMenu] = useState<MenuName>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
   const [tipVisits, setTipVisits] = useState<Record<string, number>>({});
@@ -180,12 +187,23 @@ function App() {
   useEffect(() => {
     const onHashChange = () => {
       setView(viewFromHash());
+      setLinkedPlantId(plantIdFromHash());
       setMobileNavOpen(false);
       setOpenMenu(null);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  useEffect(() => {
+    if (!data || !linkedPlantId) return;
+    const plant = data.plants.find((item) => item.id === linkedPlantId);
+    if (!plant) return;
+    setTipVisits((current) => ({ ...current, [plant.id]: (current[plant.id] ?? -1) + 1 }));
+    setSelectedPlant(plant);
+    window.history.replaceState(null, "", "#plants");
+    setLinkedPlantId(null);
+  }, [data, linkedPlantId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -484,27 +502,27 @@ function ActionHistory({ history, actions, plantNames }: { history: ActionHistor
   const actionById = Object.fromEntries(actions.map((action) => [action.id, action]));
   const labels: Record<ActionHistoryEvent["event_type"], string> = {
     action_completed: "Marked done manually",
-    action_auto_completed: "Completed automatically after moisture recovery",
+    action_auto_completed: "Completed automatically after sensor recovery",
     action_snoozed: "Snoozed",
     action_reopened: "Reopened",
     ai_recommendation_created: "AI recommendation added",
+    sensor_issue_created: "Sensor warning created",
   };
   return <section className="action-section history-section"><div className="section-title"><h3>Action history</h3><span>{history.length}</span></div>{history.length === 0 ? <p className="section-empty">History appears after an action is snoozed, completed, or reopened.</p> : <div className="history-list">{history.map((event) => { const action = actionById[event.action_id]; return <article key={event.id}><span className={`history-icon history-icon--${event.event_type}`}><Check size={14} /></span><div><strong>{labels[event.event_type] ?? event.event_type}</strong><p>{action?.title ?? "Care action"}{action ? ` · ${plantNames[action.plant_id] ?? "Unknown plant"}` : ""}</p></div><small>{event.actor} · {formatDateTime(event.occurred_at)}</small></article>; })}</div>}</section>;
 }
 
 function SettingsView({ health, compactCards, onCompactCards, onSaved }: { health: HealthResponse | null; compactCards: boolean; onCompactCards: (value: boolean) => void; onSaved: () => void }) {
-  const [quietStart, setQuietStart] = useState("22:00");
-  const [quietEnd, setQuietEnd] = useState("07:00");
-  return <div className="content page-view"><section className="intro"><div><h2>Portal preferences</h2><p>These simulator-safe display preferences are stored for this browser session.</p></div></section><div className="settings-grid"><section className="settings-card"><h3>Display</h3><label className="switch-row"><span><strong>Compact plant cards</strong><small>Show more plants at once.</small></span><input type="checkbox" checked={compactCards} onChange={(event) => onCompactCards(event.target.checked)} /></label></section><section className="settings-card"><h3>Quiet hours preview</h3><div className="form-row"><label>From<input type="time" value={quietStart} onChange={(event) => setQuietStart(event.target.value)} /></label><label>Until<input type="time" value={quietEnd} onChange={(event) => setQuietEnd(event.target.value)} /></label></div><p>Notification delivery is added in Phase 4; this lets you test the intended settings flow.</p></section><section className="settings-card settings-card--wide"><h3>Home Assistant integration</h3><div className="integration-status"><span className="connection-dot" /><div><strong>Entity mapping ready</strong><small>Open a plant’s Details window and choose Manage sensor mapping. Simulator entities are used locally; ingress loads live Home Assistant sensors.</small></div></div></section><section className="settings-card settings-card--wide"><h3>Plant Doctor</h3><div className="integration-status"><span className={`connection-dot ${health?.plant_doctor_configured ? "" : "connection-dot--inactive"}`} /><div><strong>{health?.plant_doctor_configured ? "Cloudflare credentials loaded" : "Cloudflare credentials not configured"}</strong><small>Credentials are read by the add-on backend only. Plant photos are sent only after consent for each check.</small></div></div></section></div><button className="primary-button settings-save" type="button" onClick={onSaved}>Save portal preferences</button></div>;
+  const notificationReady = health?.home_assistant_notifications_enabled;
+  return <div className="content page-view"><section className="intro"><div><h2>Portal preferences</h2><p>Display preferences stay in this browser; sensor monitoring is configured in the Home Assistant app settings.</p></div></section><div className="settings-grid"><section className="settings-card"><h3>Display</h3><label className="switch-row"><span><strong>Compact plant cards</strong><small>Show more plants at once.</small></span><input type="checkbox" checked={compactCards} onChange={(event) => onCompactCards(event.target.checked)} /></label></section><section className="settings-card"><h3>Sensor monitoring</h3><div className="integration-status"><span className="connection-dot" /><div><strong>{health?.stale_sensor_hours ?? 72}-hour unchanged-value check</strong><small>Moisture, temperature, and illuminance are checked. Battery is excluded to avoid false alarms.</small></div></div></section><section className="settings-card settings-card--wide"><h3>Home Assistant notifications</h3><div className="integration-status"><span className={`connection-dot ${notificationReady ? "" : "connection-dot--inactive"}`} /><div><strong>{notificationReady ? "Persistent notifications enabled" : health?.simulator ? "Disabled in the local simulator" : "Disabled in app configuration"}</strong><small>New sensor warnings appear in Home Assistant with a link to the affected plant. They are dismissed automatically after the sensor value changes. Change delivery or the threshold under Home Assistant → Settings → Apps → Plant Care Dashboard → Configuration, then restart the app.</small></div></div></section><section className="settings-card settings-card--wide"><h3>Home Assistant integration</h3><div className="integration-status"><span className="connection-dot" /><div><strong>Entity mapping ready</strong><small>Open a plant’s Details window and choose Manage sensor mapping. Simulator entities are used locally; ingress loads live Home Assistant sensors.</small></div></div></section><section className="settings-card settings-card--wide"><h3>Plant Doctor</h3><div className="integration-status"><span className={`connection-dot ${health?.plant_doctor_configured ? "" : "connection-dot--inactive"}`} /><div><strong>{health?.plant_doctor_configured ? "Cloudflare credentials loaded" : "Cloudflare credentials not configured"}</strong><small>Credentials are read by the app backend only. Diagnostic photos are sent only after consent for each check.</small></div></div></section></div><button className="primary-button settings-save" type="button" onClick={onSaved}>Save display preferences</button></div>;
 }
 
 function HelpView({ health, onRefresh }: { health: HealthResponse | null; onRefresh: () => void }) {
   useEffect(() => { if (!health) void onRefresh(); }, [health, onRefresh]);
-  return <div className="content page-view"><section className="intro"><div><h2>Diagnostics</h2><p>Live checks for the local API, database, and simulator.</p></div><button className="secondary-button" type="button" onClick={onRefresh}><RefreshCw size={16} />Refresh</button></section><section className="diagnostic-card"><div><span className={`health-indicator ${health?.status === "ready" ? "is-ready" : ""}`} /><div><h3>{health?.status === "ready" ? "Portal is ready" : "Checking portal…"}</h3><p>API and database status from <code>/api/v1/health</code>.</p></div></div><dl><div><dt>Version</dt><dd>{health?.version ?? "—"}</dd></div><div><dt>Database</dt><dd>{health?.database ?? "—"}</dd></div><div><dt>Simulator</dt><dd>{health?.simulator ? "Enabled" : "Disabled"}</dd></div><div><dt>Plant Doctor</dt><dd>{health?.plant_doctor_configured ? "Configured" : "Not configured"}</dd></div></dl></section><section className="settings-card help-card"><h3>What can be tested now?</h3><ul><li>Dashboard filtering, sorting, and status summaries</li><li>Plant details, sensor-first creation, and local private photos</li><li>Consent-based Plant Doctor checks when Cloudflare is configured</li><li>Persistent care-action snooze, completion, and undo</li><li>Responsive navigation and shared-password login</li></ul></section></div>;
+  return <div className="content page-view"><section className="intro"><div><h2>Diagnostics</h2><p>Live checks for the local API, database, sensor monitor, and notification delivery.</p></div><button className="secondary-button" type="button" onClick={onRefresh}><RefreshCw size={16} />Refresh</button></section><section className="diagnostic-card"><div><span className={`health-indicator ${health?.status === "ready" ? "is-ready" : ""}`} /><div><h3>{health?.status === "ready" ? "Portal is ready" : "Checking portal…"}</h3><p>API and database status from <code>/api/v1/health</code>.</p></div></div><dl><div><dt>Version</dt><dd>{health?.version ?? "—"}</dd></div><div><dt>Database</dt><dd>{health?.database ?? "—"}</dd></div><div><dt>Simulator</dt><dd>{health?.simulator ? "Enabled" : "Disabled"}</dd></div><div><dt>Plant Doctor</dt><dd>{health?.plant_doctor_configured ? "Configured" : "Not configured"}</dd></div><div><dt>Sensor timeout</dt><dd>{health ? `${health.stale_sensor_hours} hours` : "—"}</dd></div><div><dt>HA notifications</dt><dd>{health?.home_assistant_notifications_enabled ? "Enabled" : "Disabled"}</dd></div></dl></section><section className="settings-card help-card"><h3>What can be tested now?</h3><ul><li>Dashboard filtering, sorting, and status summaries</li><li>Plant details, sensor-first creation, and local private photos</li><li>Consent-based Plant Doctor checks when Cloudflare is configured</li><li>Persistent care-action snooze, completion, and undo</li><li>Home Assistant sensor warnings with plant deep links</li><li>Responsive navigation and shared-password login</li></ul></section></div>;
 }
 
 function NotificationsMenu({ actions, onClose }: { actions: CareAction[]; onClose: () => void }) {
-  return <div className="popover notification-popover" role="dialog" aria-label="Notifications"><div className="popover__head"><strong>Needs attention</strong><button type="button" aria-label="Close notifications" onClick={onClose}><X size={15} /></button></div>{actions.slice(0, 3).map((action) => <div className="notification-item" key={action.id}><span /><div><strong>{action.title}</strong><small>{action.recommendation}</small></div></div>)}{actions.length === 0 && <p>All clear.</p>}<a href="#actions" onClick={onClose}>Open care queue</a></div>;
+  return <div className="popover notification-popover" role="dialog" aria-label="Notifications"><div className="popover__head"><strong>Needs attention</strong><button type="button" aria-label="Close notifications" onClick={onClose}><X size={15} /></button></div>{actions.slice(0, 3).map((action) => <a className="notification-item" href={`#plants/${encodeURIComponent(action.plant_id)}`} onClick={onClose} key={action.id}><span /><div><strong>{action.title}</strong><small>{action.recommendation}</small></div></a>)}{actions.length === 0 && <p>All clear.</p>}<a href="#actions" onClick={onClose}>Open care queue</a></div>;
 }
 
 function ProfileMenu({ onClose }: { onClose: () => void }) {

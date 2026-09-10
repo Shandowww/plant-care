@@ -1,10 +1,21 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 import httpx2
 
 from .schemas import HomeAssistantEntity
+
+
+class HomeAssistantNotificationSink(Protocol):
+    async def ingress_url(self) -> str: ...
+
+    async def create_persistent_notification(
+        self, *, notification_id: str, title: str, message: str
+    ) -> None: ...
+
+    async def dismiss_persistent_notification(self, *, notification_id: str) -> None: ...
+
 
 RELEVANT_DEVICE_CLASSES = {
     "battery",
@@ -87,6 +98,7 @@ class HomeAssistantClient:
     def __init__(self, token: str | None) -> None:
         self.token = token
         self.areas: list[str] = []
+        self._ingress_url: str | None = None
 
     async def list_entities(self) -> list[HomeAssistantEntity]:
         if not self.token:
@@ -174,8 +186,56 @@ class HomeAssistantClient:
             unit=unit if isinstance(unit, str) else None,
             area_name=metadata[0] if metadata else None,
             device_id=metadata[1] if metadata else None,
+            last_changed=HomeAssistantClient._parse_timestamp(item.get("last_changed")),
             last_updated=HomeAssistantClient._parse_timestamp(item.get("last_updated")),
         )
+
+    async def ingress_url(self) -> str:
+        if self._ingress_url:
+            return self._ingress_url
+        if not self.token:
+            raise RuntimeError("Home Assistant API token is unavailable")
+        async with httpx2.AsyncClient(
+            base_url="http://supervisor/",
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=10.0,
+        ) as client:
+            response = await client.get("addons/self/info")
+            response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data", payload) if isinstance(payload, dict) else {}
+        ingress_url = data.get("ingress_url") if isinstance(data, dict) else None
+        if not isinstance(ingress_url, str) or not ingress_url:
+            raise RuntimeError("PlantCare ingress URL is unavailable")
+        self._ingress_url = ingress_url.rstrip("/") + "/"
+        return self._ingress_url
+
+    async def create_persistent_notification(
+        self, *, notification_id: str, title: str, message: str
+    ) -> None:
+        await self._call_service(
+            "persistent_notification",
+            "create",
+            {"notification_id": notification_id, "title": title, "message": message},
+        )
+
+    async def dismiss_persistent_notification(self, *, notification_id: str) -> None:
+        await self._call_service(
+            "persistent_notification",
+            "dismiss",
+            {"notification_id": notification_id},
+        )
+
+    async def _call_service(self, domain: str, service: str, payload: dict[str, Any]) -> None:
+        if not self.token:
+            raise RuntimeError("Home Assistant API token is unavailable")
+        async with httpx2.AsyncClient(
+            base_url="http://supervisor/core/api/",
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=10.0,
+        ) as client:
+            response = await client.post(f"services/{domain}/{service}", json=payload)
+            response.raise_for_status()
 
     @staticmethod
     def _parse_timestamp(value: Any) -> datetime | None:

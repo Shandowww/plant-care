@@ -88,7 +88,7 @@ export interface ActionHistoryEvent {
   id: string;
   action_id: string;
   actor: string;
-  event_type: "action_snoozed" | "action_completed" | "action_auto_completed" | "action_reopened" | "ai_recommendation_created";
+  event_type: "action_snoozed" | "action_completed" | "action_auto_completed" | "action_reopened" | "ai_recommendation_created" | "sensor_issue_created";
   old_json: Record<string, unknown> | null;
   new_json: Record<string, unknown> | null;
   occurred_at: string;
@@ -104,6 +104,8 @@ export interface HealthResponse {
   database: string;
   simulator: boolean;
   plant_doctor_configured: boolean;
+  home_assistant_notifications_enabled: boolean;
+  stale_sensor_hours: number;
 }
 
 export interface PlantDoctorResponse {

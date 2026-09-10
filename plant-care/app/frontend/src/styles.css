@@ -223,6 +223,8 @@ button { color: inherit; }
 .popover__head strong { font-size: 11px; }
 .popover__head button { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; background: transparent; border: 0; cursor: pointer; }
 .notification-item { display: flex; gap: 9px; padding: 9px 4px; border-top: 1px solid #efeee8; }
+.popover > a.notification-item { display: flex; margin-top: 0; padding: 9px 4px; color: inherit; text-align: left; background: transparent; border-radius: 0; font-size: inherit; font-weight: inherit; }
+.popover > a.notification-item:hover { background: #f5f7f3; }
 .notification-item > span { width: 7px; height: 7px; margin-top: 3px; flex: 0 0 auto; background: #bc7641; border-radius: 50%; }
 .notification-item div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .notification-item strong { font-size: 10px; }
