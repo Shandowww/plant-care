@@ -125,7 +125,7 @@ def test_mapped_home_assistant_values_are_persisted_and_idempotent(tmp_path: Pat
         assert synchronized.status_code == 200
         assert synchronized.json() == {
             "plants_checked": 1,
-            "readings_added": 4,
+            "readings_added": 0,
             "invalid_readings": 0,
             "missing_entities": 0,
         }
@@ -150,6 +150,35 @@ def test_mapped_home_assistant_values_are_persisted_and_idempotent(tmp_path: Pat
         assert repeated.json()["readings_added"] == 0
         all_history = client.get(f"/api/v1/plants/{plant['id']}/readings").json()
         assert len(all_history["readings"]) == 4
+
+
+def test_plant_created_with_mapping_is_hydrated_immediately(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    with production_client(tmp_path, source) as client:
+        created = client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Office Fern",
+                "location": "Office",
+                "common_name": "Boston fern",
+                "scientific_name": "Nephrolepis exaltata",
+                "environment_type": "indoor",
+                "entity_mapping": {
+                    "moisture_entity_id": "sensor.fern_moisture",
+                    "temperature_entity_id": "sensor.fern_temperature",
+                    "battery_entity_id": "sensor.fern_battery",
+                    "illuminance_entity_id": "sensor.fern_illuminance",
+                },
+            },
+        )
+
+        assert created.status_code == 201
+        assert created.json()["state"] == "good"
+        assert created.json()["moisture"] == 42
+        assert created.json()["temperature"] == 24
+        assert created.json()["battery"] == 91
+        assert created.json()["illuminance"] == 850
+        assert created.json()["last_reading_at"] == "2026-08-15T08:30:00Z"
 
 
 def test_invalid_reading_does_not_replace_last_good_value(tmp_path: Path) -> None:

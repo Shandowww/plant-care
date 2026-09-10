@@ -64,7 +64,9 @@ When adding a plant, choose its Home Assistant moisture sensor first. PlantCare
 will suggest an editable name and area and preselect temperature, battery, and
 illuminance entities that belong to the same Home Assistant device. Locations
 are selected from Home Assistant areas; illuminance can instead use any sensor,
-with an available sensor in the same area suggested first.
+with an available sensor in the same area suggested first. Saving the new plant
+now triggers its first reading refresh in the backend, so it does not depend on
+the browser remaining open.
 
 Plant photos are validated, resized, stripped of embedded metadata, and kept
 under the add-on's `/data` volume. A personal photo automatically replaces the
@@ -90,6 +92,11 @@ that remain unchanged for 72 hours create a sensor issue and a persistent Home
 Assistant notification with a direct link to that plant. Both the threshold and
 notification delivery are configurable in the app options. Battery values are
 excluded because slow battery changes are expected.
+
+The moisture and temperature tiles on each plant card are expandable. They show
+species-aware guidance where available and labelled indoor/outdoor fallbacks
+otherwise. Soil-moisture percentages depend on the sensor, substrate, and probe
+placement, so use the displayed moisture range as trend guidance.
 
 ## Validation
 

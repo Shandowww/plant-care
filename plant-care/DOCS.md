@@ -118,9 +118,11 @@ temperature, battery, and optional illuminance entities. Plant identity and
 history stay in PlantCare: changing or deleting a Home Assistant entity only
 marks the mapping unavailable and never deletes the plant.
 
-Mapping changes are committed before PlantCare requests an immediate reading
-refresh. If Home Assistant is temporarily unavailable, the selected mapping
-stays saved and the regular background synchronization retries automatically.
+New plants with mappings and later mapping changes are committed before the
+backend requests an immediate reading refresh. If Home Assistant is temporarily
+unavailable, the selected mapping stays saved and the regular background
+synchronization retries automatically; the first sync never depends on the
+browser remaining open.
 
 `unknown`, `unavailable`, empty, non-numeric, wrong-unit, and out-of-range states
 are not stored as measurements and do not overwrite the last known good value.
@@ -130,6 +132,11 @@ On a plant card, select the temperature reading to reveal its typical normal
 range. Identified plants use a species profile; unidentified plants show a
 clearly labelled general indoor or outdoor fallback. These ranges are guidance
 only and do not currently trigger care actions or notifications.
+
+Select the moisture reading to reveal a typical soil-moisture range using the
+same species/fallback approach. Treat the percentage as trend guidance rather
+than an absolute horticultural threshold because different sensors, substrates,
+and probe positions can report different values for the same pot.
 
 Plant details also include a bundled care guide. Identified plants receive a
 different species-specific featured tip on each visit, with controls to shuffle

@@ -39,7 +39,7 @@ const action = {
   completed_by: null,
 };
 
-function mockApi(actionFixture = action, plantFixture = plant, simulator = true, syncStatus = 200) {
+function mockApi(actionFixture = action, plantFixture = plant, simulator = true) {
   let currentPlant = { ...plantFixture };
   let doctorChecks = 0;
   let doctorHistory: Array<Record<string, unknown>> = [];
@@ -63,7 +63,7 @@ function mockApi(actionFixture = action, plantFixture = plant, simulator = true,
       { entity_id: "sensor.kitchen_motion_illuminance", name: "Kitchen Motion Illuminance", device_class: "illuminance", state: "465", unit: "lx", area_name: "Kitchen", device_id: "device-motion" },
     ] }), { status: 200 });
     if (url.endsWith("/home-assistant/sync") && init?.method === "POST") {
-      return new Response(JSON.stringify({ plants_checked: 1, readings_added: 0, invalid_readings: 0, missing_entities: 0 }), { status: syncStatus });
+      return new Response(JSON.stringify({ plants_checked: 1, readings_added: 0, invalid_readings: 0, missing_entities: 0 }), { status: 200 });
     }
     if (url.endsWith("/plants/plant-1/entity-mapping") && init?.method === "PATCH") {
       const entityMapping = JSON.parse(String(init.body));
@@ -135,7 +135,7 @@ function mockApi(actionFixture = action, plantFixture = plant, simulator = true,
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.0", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.1", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -215,6 +215,18 @@ describe("portal", () => {
     fireEvent.click(temperature);
     expect(screen.getByText("Normal temperature range: 18–29°C")).toBeInTheDocument();
     expect(screen.getByText(/Typical range for golden pothos/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
+  });
+
+  it("shows the plant-specific soil moisture range without opening plant details", async () => {
+    mockApi();
+    render(<App />);
+    const moisture = await screen.findByRole("button", {
+      name: "Moisture 18 percent; show recommended range",
+    });
+    fireEvent.click(moisture);
+    expect(screen.getByText("Recommended soil moisture range: 25–60%")).toBeInTheDocument();
+    expect(screen.getByText(/readings vary by sensor, substrate, and placement/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
   });
 
@@ -347,22 +359,26 @@ describe("portal", () => {
     );
   });
 
-  it("keeps a saved sensor change when an immediate Home Assistant sync fails", async () => {
+  it("refreshes a saved sensor change without a second browser-driven sync", async () => {
     const fetchMock = mockApi(action, { ...plant, entity_mapping: {
       moisture_entity_id: "sensor.golden_pothos_soil_moisture",
       temperature_entity_id: "sensor.golden_pothos_temperature",
       battery_entity_id: "sensor.golden_pothos_battery",
       illuminance_entity_id: null,
-    } }, false, 502);
+    } }, false);
     render(<App />);
     fireEvent.click(await screen.findByRole("article", { name: "Golden Pothos" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage sensor mapping" }));
     fireEvent.change(await screen.findByLabelText("Temperature"), { target: { value: "sensor.kitchen_air_temperature" } });
     fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
-    expect(await screen.findByText("Golden Pothos mapping was saved. Live readings will retry automatically.")).toBeInTheDocument();
+    expect(await screen.findByText("Golden Pothos sensor mapping was updated.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/entity-mapping",
       expect.objectContaining({ method: "PATCH", body: expect.stringContaining("sensor.kitchen_air_temperature") }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "api/v1/home-assistant/sync",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

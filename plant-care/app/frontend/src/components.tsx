@@ -29,6 +29,7 @@ const visualVariant: Record<string, string> = {
 };
 
 type TemperatureProfile = { minimum: number; maximum: number; note: string };
+type MoistureProfile = { minimum: number; maximum: number; note: string };
 
 const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
   "epipremnum aureum": { minimum: 18, maximum: 29, note: "Typical range for golden pothos" },
@@ -36,6 +37,16 @@ const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
   "olea europaea": { minimum: 10, maximum: 30, note: "Broad typical range for a potted olive tree" },
   "dracaena trifasciata": { minimum: 15, maximum: 29, note: "Typical range for a snake plant" },
   spathiphyllum: { minimum: 18, maximum: 29, note: "Typical range for a peace lily" },
+};
+
+const speciesMoistureProfiles: Record<string, MoistureProfile> = {
+  "epipremnum aureum": { minimum: 25, maximum: 60, note: "Typical sensor guidance for golden pothos" },
+  "monstera deliciosa": { minimum: 30, maximum: 65, note: "Typical sensor guidance for Monstera deliciosa" },
+  "olea europaea": { minimum: 15, maximum: 45, note: "Typical sensor guidance for a potted olive tree" },
+  "dracaena trifasciata": { minimum: 10, maximum: 45, note: "Typical sensor guidance for a snake plant" },
+  spathiphyllum: { minimum: 35, maximum: 70, note: "Typical sensor guidance for a peace lily" },
+  "euphorbia tithymaloides": { minimum: 15, maximum: 45, note: "Typical sensor guidance for devil's backbone" },
+  "euphorbia leuconeura": { minimum: 20, maximum: 50, note: "Typical sensor guidance for Madagascar jewel" },
 };
 
 function temperatureProfile(plant: Plant): TemperatureProfile {
@@ -51,6 +62,21 @@ function temperatureProfile(plant: Plant): TemperatureProfile {
   return plant.environment_type === "indoor"
     ? { minimum: 18, maximum: 29, note: "General indoor fallback until the species is confirmed" }
     : { minimum: 5, maximum: 35, note: "General outdoor fallback until the species is confirmed" };
+}
+
+function moistureProfile(plant: Plant): MoistureProfile {
+  const scientificName = plant.scientific_name?.trim().toLowerCase();
+  if (scientificName) {
+    const exact = speciesMoistureProfiles[scientificName];
+    if (exact) return exact;
+  }
+  const commonName = plant.common_name.trim().toLowerCase();
+  if (commonName.includes("orchid")) {
+    return { minimum: 20, maximum: 55, note: "Broad orchid fallback; species and potting medium can change this substantially" };
+  }
+  return plant.environment_type === "indoor"
+    ? { minimum: 20, maximum: 60, note: "General indoor fallback until the species is confirmed" }
+    : { minimum: 15, maximum: 65, note: "General outdoor-container fallback until the species is confirmed" };
 }
 
 function timeAgo(value: string | null): string {
@@ -85,8 +111,11 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
   const state = stateContent[plant.state];
   const StateIcon = state.icon;
   const [temperatureOpen, setTemperatureOpen] = useState(false);
+  const [moistureOpen, setMoistureOpen] = useState(false);
   const preferredTemperature = temperatureProfile(plant);
+  const preferredMoisture = moistureProfile(plant);
   const temperatureRangeId = `temperature-range-${plant.id}`;
+  const moistureRangeId = `moisture-range-${plant.id}`;
   return (
     <article className={`plant-card plant-card--${plant.state}`} aria-labelledby={`plant-${plant.id}`} onClick={() => onDetails(plant)}>
       <div className="plant-card__visual">
@@ -106,10 +135,20 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
         </div>
 
         <div className="readings" aria-label="Latest readings">
-          <div className={`reading reading--${plant.moisture_status}`}>
+          <button
+            className={`reading reading-button reading--${plant.moisture_status}`}
+            type="button"
+            aria-label={`Moisture ${plant.moisture === null ? "unavailable" : `${plant.moisture} percent`}; show recommended range`}
+            aria-expanded={moistureOpen}
+            aria-controls={moistureRangeId}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMoistureOpen((open) => !open);
+            }}
+          >
             <Droplets size={17} aria-hidden="true" />
             <span><strong>{plant.moisture === null ? "—" : `${plant.moisture}%`}</strong>Moisture</span>
-          </div>
+          </button>
           <button
             className={`reading reading-button reading--${plant.temperature_status}`}
             type="button"
@@ -128,8 +167,14 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
             <BatteryMedium size={17} aria-hidden="true" />
             <span><strong>{plant.battery === null ? "—" : `${plant.battery}%`}</strong>Battery</span>
           </div>
+          {moistureOpen && (
+            <div className="reading-range-note" id={moistureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
+              <strong>Recommended soil moisture range: {preferredMoisture.minimum}–{preferredMoisture.maximum}%</strong>
+              <span>{preferredMoisture.note}. Use the trend as guidance because readings vary by sensor, substrate, and placement.</span>
+            </div>
+          )}
           {temperatureOpen && (
-            <div className="temperature-range-note" id={temperatureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
+            <div className="reading-range-note" id={temperatureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
               <strong>Normal temperature range: {preferredTemperature.minimum}–{preferredTemperature.maximum}°C</strong>
               <span>{preferredTemperature.note}. Guidance only; temperature alerts are not automated yet.</span>
             </div>

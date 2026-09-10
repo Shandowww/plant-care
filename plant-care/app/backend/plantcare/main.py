@@ -176,6 +176,26 @@ def create_app(
                 logger.warning("home_assistant_sync_failed", error=type(exc).__name__)
             await asyncio.sleep(app_settings.sync_interval_seconds)
 
+    async def sync_after_mapping_change(plant_id: str) -> None:
+        """Hydrate a newly saved mapping without making plant edits depend on HA uptime."""
+        if app_settings.simulator_enabled or not app_settings.supervisor_token:
+            return
+        try:
+            result = await sync_once()
+            logger.info(
+                "home_assistant_mapping_sync_complete",
+                plant_id=plant_id,
+                readings_added=result.readings_added,
+                invalid_readings=result.invalid_readings,
+                missing_entities=result.missing_entities,
+            )
+        except Exception as exc:
+            logger.warning(
+                "home_assistant_mapping_sync_failed",
+                plant_id=plant_id,
+                error=type(exc).__name__,
+            )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         sync_task: asyncio.Task[None] | None = None
@@ -453,6 +473,7 @@ def create_app(
         )
         await session.commit()
         await session.refresh(mapping)
+        await sync_after_mapping_change(plant.id)
         return PlantEntityMappingSummary.model_validate(mapping)
 
     @application.post(
@@ -496,6 +517,8 @@ def create_app(
             )
         )
         await session.commit()
+        if payload.entity_mapping is not None:
+            await sync_after_mapping_change(plant.id)
         await session.refresh(plant)
         return PlantSummary.model_validate(plant)
 

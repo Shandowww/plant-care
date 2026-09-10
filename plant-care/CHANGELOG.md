@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.1
+
+- Hydrate live sensor values from Home Assistant immediately after a plant is
+  created with mappings or an existing mapping is changed. The recurring
+  background sync remains the fallback when Home Assistant is temporarily
+  unavailable.
+- Make the moisture reading on each plant card expandable, with species-aware
+  soil-moisture guidance and clearly labelled indoor/outdoor fallbacks.
+- Explain that soil-moisture percentages vary with sensor model, substrate,
+  and probe placement, so the displayed range should be read as trend guidance.
+
 ## 0.8.0
 
 - Detect mapped moisture, temperature, and illuminance sensors whose value has

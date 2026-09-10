@@ -41,7 +41,6 @@ import {
   login,
   simulateConfirmedWatering,
   snoozeAction,
-  syncHomeAssistant,
   undoAction,
   updatePlant,
   updatePlantDoctorFeedback,
@@ -279,9 +278,6 @@ function App() {
         photoWarning = true;
       }
     }
-    if (health?.simulator === false) {
-      try { await syncHomeAssistant(); } catch { /* The background sync will retry. */ }
-    }
     const response = await refreshPlants();
     const refreshed = response.plants.find((item) => item.id === plant.id) ?? plant;
     setAddPlantOpen(false);
@@ -328,17 +324,9 @@ function App() {
     } : current);
     setMappingPlant(null);
     showPlantDetails(locallyUpdated);
-    if (health && !health.simulator) {
-      try {
-        await syncHomeAssistant();
-        const response = await refreshPlants();
-        const refreshed = response.plants.find((item) => item.id === plant.id);
-        if (refreshed) setSelectedPlant(refreshed);
-      } catch {
-        setToast(`${plant.display_name} mapping was saved. Live readings will retry automatically.`);
-        return;
-      }
-    }
+    const response = await refreshPlants();
+    const refreshed = response.plants.find((item) => item.id === plant.id);
+    if (refreshed) setSelectedPlant(refreshed);
     setToast(`${plant.display_name} sensor mapping was updated.`);
   }
 
