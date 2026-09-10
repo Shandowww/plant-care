@@ -12,6 +12,9 @@
 - A Plant Doctor check sends a reduced metadata-free image plus limited plant and
   sensor context to Cloudflare only after explicit consent for that request.
   Home Assistant credentials and entity IDs are not included.
-- Plant Doctor output is displayed transiently, is not persisted, and cannot
-  automatically modify a plant or its care queue.
+- Plant Doctor output is displayed transiently and is not persisted. A user can
+  explicitly copy its safe next checks into a clearly labelled AI recommendation
+  task; AI output cannot modify care or control devices automatically.
+- PlantCare locally counts successful Doctor checks per UTC day from minimal
+  audit metadata. It does not query or expose Cloudflare billing information.
 - Normal exports and diagnostics exclude secrets and photos.

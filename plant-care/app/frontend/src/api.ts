@@ -1,4 +1,4 @@
-import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantDoctorResponse, PlantEntityMapping, PlantResponse } from "./types";
+import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantDoctorResponse, PlantDoctorUsageResponse, PlantEntityMapping, PlantResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -123,6 +123,23 @@ export async function diagnosePlant(plantId: string): Promise<PlantDoctorRespons
     throw new ApiError(response.status, payload?.detail ?? "Plant Doctor could not complete the check.");
   }
   return (await response.json()) as PlantDoctorResponse;
+}
+
+export async function getPlantDoctorUsage(signal?: AbortSignal): Promise<PlantDoctorUsageResponse> {
+  const response = await fetch(ingressRelative("/api/v1/plant-doctor/usage"), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) throw new ApiError(response.status, "Plant Doctor usage could not be loaded.");
+  return (await response.json()) as PlantDoctorUsageResponse;
+}
+
+export function createDoctorRecommendation(plantId: string, recommendation: string): Promise<CareAction> {
+  return jsonMutation<CareAction>(
+    `/api/v1/plants/${plantId}/doctor/recommendation`,
+    { recommendation },
+  );
 }
 
 export async function getHomeAssistantEntities(signal?: AbortSignal): Promise<HomeAssistantEntityResponse> {

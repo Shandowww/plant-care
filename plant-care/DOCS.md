@@ -81,9 +81,18 @@ For each check, PlantCare requires a current private photo and fresh consent.
 It sends Cloudflare a temporary metadata-free copy resized to at most 1280 pixels,
 the plant identity, location/exposure, and the latest moisture, temperature, and
 illuminance values. It does not send Home Assistant credentials or entity IDs.
-The assessment and neuron usage are displayed but not saved, and suggestions do
-not automatically create actions or change plant care. Cloudflare's allowance
-and data policies remain subject to the owner's Cloudflare plan and terms.
+The assessment and neuron usage are displayed but not saved. After reviewing an
+assessment, a user may explicitly add its safe next checks to the shared care
+queue. The resulting task is labelled **AI recommendation**, can be snoozed or
+completed manually, and appears in action history. AI output never changes care
+or controls devices by itself. Cloudflare's allowance and data policies remain
+subject to the owner's Cloudflare plan and terms.
+
+The consent screen also shows how many successful Plant Doctor checks this
+PlantCare installation has completed since 00:00 UTC. It includes a reminder of
+the 10,000-neuron daily free allocation and an approximate 10–50 neurons per
+check. This is a local check count, not Cloudflare account-wide usage; activity
+from other applications is visible only in the Cloudflare dashboard.
 
 ## Sensor mapping
 

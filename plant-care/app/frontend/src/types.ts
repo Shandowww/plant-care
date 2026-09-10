@@ -88,7 +88,7 @@ export interface ActionHistoryEvent {
   id: string;
   action_id: string;
   actor: string;
-  event_type: "action_snoozed" | "action_completed" | "action_auto_completed" | "action_reopened";
+  event_type: "action_snoozed" | "action_completed" | "action_auto_completed" | "action_reopened" | "ai_recommendation_created";
   old_json: Record<string, unknown> | null;
   new_json: Record<string, unknown> | null;
   occurred_at: string;
@@ -116,4 +116,12 @@ export interface PlantDoctorResponse {
   model: string;
   neurons: number | null;
   disclaimer: string;
+}
+
+export interface PlantDoctorUsageResponse {
+  checks_today: number;
+  period_started_at: string;
+  resets_at: string;
+  daily_free_neuron_limit: number;
+  estimated_neurons_per_check: string;
 }

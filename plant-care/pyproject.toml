@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "plant-care-dashboard"
-version = "0.5.0"
+version = "0.5.1"
 description = "Local-first Home Assistant plant care dashboard"
 requires-python = ">=3.14,<3.15"
 dependencies = [

@@ -124,6 +124,18 @@ class PlantDoctorResponse(BaseModel):
     disclaimer: str
 
 
+class PlantDoctorUsageResponse(BaseModel):
+    checks_today: int
+    period_started_at: datetime
+    resets_at: datetime
+    daily_free_neuron_limit: int = 10_000
+    estimated_neurons_per_check: str = "about 10–50"
+
+
+class PlantDoctorActionRequest(BaseModel):
+    recommendation: str = Field(min_length=1, max_length=1_000)
+
+
 class PlantCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     location: str = Field(min_length=1, max_length=120)

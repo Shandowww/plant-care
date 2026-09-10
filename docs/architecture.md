@@ -20,7 +20,10 @@ Credentials are read from protected app options into the backend process and are
 never returned by the API. After explicit per-check browser consent, the backend
 creates a smaller temporary JPEG and sends it with limited plant identity and
 sensor context. Provider results are returned to that request but are not
-persisted; audit data records only provider, model, confidence, and usage.
+persisted; audit data records only provider, model, confidence, and usage. A user
+may explicitly promote the returned safe next checks into a manual
+`ai_recommendation` care action. Identical active recommendations are
+deduplicated and their creation is included in action history.
 
 Home Assistant Core remains the sole live device source. The Phase 2 REST client
 discovers relevant entities and synchronizes only explicitly mapped entities on

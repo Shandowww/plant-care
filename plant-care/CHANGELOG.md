@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.1
+
+- Show the number of successful Plant Doctor checks completed by this
+  installation since 00:00 UTC alongside the consent control.
+- Remind users of Cloudflare's 10,000-neuron daily free allocation and label the
+  expected usage as approximately 10–50 neurons per check.
+- Refresh the local counter after each successful diagnosis without making an
+  additional Cloudflare request or exposing provider credentials.
+- Let users explicitly add the Doctor's safe next checks to the shared care
+  queue as a manually completable task with a prominent AI recommendation tag.
+- Deduplicate identical open AI recommendations and record their creation in
+  action history; AI output never changes care or controls devices by itself.
+
 ## 0.5.0
 
 - Move private photo add, replacement, and removal into the general Edit plant

@@ -64,8 +64,10 @@ from .schemas import (
     LoginRequest,
     PasswordRequest,
     PlantCreateRequest,
+    PlantDoctorActionRequest,
     PlantDoctorRequest,
     PlantDoctorResponse,
+    PlantDoctorUsageResponse,
     PlantEntityMappingSummary,
     PlantEntityMappingUpdate,
     PlantListResponse,
@@ -673,6 +675,90 @@ def create_app(
         )
         await session.commit()
         return assessment
+
+    @application.get(
+        "/api/v1/plant-doctor/usage",
+        response_model=PlantDoctorUsageResponse,
+    )
+    async def plant_doctor_usage(
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantDoctorUsageResponse:
+        del identity
+        now = datetime.now(UTC)
+        period_started_at = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        checks_today = await session.scalar(
+            select(func.count(AuditEvent.id)).where(
+                AuditEvent.event_type == "plant_doctor_completed",
+                AuditEvent.occurred_at >= period_started_at,
+            )
+        )
+        return PlantDoctorUsageResponse(
+            checks_today=int(checks_today or 0),
+            period_started_at=period_started_at,
+            resets_at=period_started_at + timedelta(days=1),
+        )
+
+    @application.post(
+        "/api/v1/plants/{plant_id}/doctor/recommendation",
+        response_model=ActionSummary,
+    )
+    async def add_plant_doctor_recommendation(
+        plant_id: str,
+        payload: PlantDoctorActionRequest,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> ActionSummary:
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        recommendation = payload.recommendation.strip()
+        if not recommendation:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The AI recommendation cannot be empty.",
+            )
+        existing = await session.scalar(
+            select(CareAction).where(
+                CareAction.plant_id == plant.id,
+                CareAction.type == "ai_recommendation",
+                CareAction.recommendation == recommendation,
+                CareAction.status.in_((ActionStatus.OPEN.value, ActionStatus.SNOOZED.value)),
+            )
+        )
+        if existing is not None:
+            return ActionSummary.model_validate(existing)
+        now = datetime.now(UTC)
+        action = CareAction(
+            plant_id=plant.id,
+            type="ai_recommendation",
+            title="Review AI recommendation",
+            observation=(
+                "Suggested by Plant Doctor from a photo assessment. "
+                "Verify it directly before changing care."
+            ),
+            recommendation=recommendation,
+            status=ActionStatus.OPEN.value,
+            priority=3,
+            due_at=now,
+            deduplication_key=f"plant-doctor:{plant.id}:{now.isoformat()}",
+        )
+        session.add(action)
+        await session.flush()
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="ai_recommendation_created",
+                object_type="care_action",
+                object_id=action.id,
+                new_json={"status": action.status, "source": "plant_doctor"},
+            )
+        )
+        if plant.state in {"good", "watch"}:
+            plant.state = "action_needed"
+        await session.commit()
+        await session.refresh(action)
+        return ActionSummary.model_validate(action)
 
     @application.get(
         "/api/v1/plants/{plant_id}/readings",

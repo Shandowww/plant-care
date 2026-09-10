@@ -75,7 +75,8 @@ Plant Doctor can use the installation owner's Cloudflare Workers AI credentials.
 The Account ID and API token are configured in Home Assistant app options, never
 in this repository or in browser code. A photo and limited sensor context are
 sent only after consent for each check; the result is not persisted and cannot
-change care actions automatically.
+change care automatically. After reviewing the result, the user can explicitly
+add its safe next checks to the care queue as a labelled AI recommendation.
 
 Plant identity and care settings belong to PlantCare; Home Assistant is the
 source of live sensor readings. A removed or unavailable HA entity will be

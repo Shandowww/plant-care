@@ -27,12 +27,14 @@ import {
   archivePlant,
   completeAction,
   createPlant,
+  createDoctorRecommendation,
   deletePlantPhoto,
   diagnosePlant,
   getActionHistory,
   getActions,
   getHealth,
   getHomeAssistantEntities,
+  getPlantDoctorUsage,
   getPlants,
   login,
   simulateConfirmedWatering,
@@ -53,6 +55,7 @@ import type {
   Plant,
   PlantCreate,
   PlantDoctorResponse,
+  PlantDoctorUsageResponse,
   PlantEntityMapping,
   PlantResponse,
   PlantState,
@@ -293,6 +296,12 @@ function App() {
     setToast("Confirmed moisture recovery recorded; the watering action closed automatically.");
   }
 
+  async function handleDoctorRecommendation(plant: Plant, recommendation: string) {
+    await createDoctorRecommendation(plant.id, recommendation);
+    await Promise.all([refreshPlants(), refreshActions(), refreshActionHistory()]);
+    setToast(`AI recommendation added to ${plant.display_name}'s care queue.`);
+  }
+
   async function refreshHealth() {
     try {
       setHealth(await getHealth());
@@ -362,7 +371,7 @@ function App() {
       </main>
 
       {selectedPlant && <PlantDetailDialog plant={selectedPlant} actions={actions.filter((action) => action.plant_id === selectedPlant.id)} onClose={() => setSelectedPlant(null)} onEdit={() => { setEditingPlant(selectedPlant); setSelectedPlant(null); }} onMapping={() => { setMappingPlant(selectedPlant); setSelectedPlant(null); }} onDoctor={() => { setSelectedPlant(null); setDoctorPlant(selectedPlant); }} onMarkDone={(action) => mutateAction(action, "complete")} onSimulateWatering={() => handleSimulatedWatering(selectedPlant)} />}
-      {doctorPlant && <DoctorDialog plant={doctorPlant} onClose={() => setDoctorPlant(null)} onEdit={() => { setEditingPlant(doctorPlant); setDoctorPlant(null); }} />}
+      {doctorPlant && <DoctorDialog plant={doctorPlant} onClose={() => setDoctorPlant(null)} onEdit={() => { setEditingPlant(doctorPlant); setDoctorPlant(null); }} onAddAction={handleDoctorRecommendation} />}
       {addPlantOpen && <AddPlantDialog onClose={() => setAddPlantOpen(false)} onCreate={handleCreatePlant} />}
       {editingPlant && <EditPlantDialog plant={editingPlant} onClose={() => setEditingPlant(null)} onUpdate={handleUpdatePlant} onArchive={handleArchivePlant} />}
       {mappingPlant && <EntityMappingDialog plant={mappingPlant} onClose={() => setMappingPlant(null)} onSave={handleUpdateMapping} />}
@@ -433,7 +442,7 @@ function ActionQueue({ actions, history, plants, error, saving, snoozeHours, onS
 }
 
 function ActionSection({ title, actions, empty, plantNames, saving, snoozeHours, onSnoozeHours, onMutate }: { title: string; actions: CareAction[]; empty: string; plantNames: Record<string, string>; saving: string | null; snoozeHours: Record<string, number>; onSnoozeHours: (id: string, hours: number) => void; onMutate: (action: CareAction, operation: "complete" | "snooze" | "undo") => void }) {
-  return <section className="action-section"><div className="section-title"><h3>{title}</h3><span>{actions.length}</span></div>{actions.length === 0 ? <p className="section-empty">{empty}</p> : <div className="action-list">{actions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <article className={`action-card action-card--${action.status}`} key={action.id}><div className="action-card__priority">P{action.priority}</div><div className="action-card__copy"><span>{plantNames[action.plant_id] ?? "Unknown plant"}</span><h4>{action.title}</h4><p>{action.observation}</p><strong>{action.recommendation}</strong>{sensorManaged && action.status !== "completed" && <small className="automatic-note">Sensor-managed: closes automatically when the condition recovers.</small>}{action.status === "snoozed" && <small><Clock3 size={13} />Snoozed until {formatDateTime(action.snoozed_until)}</small>}{action.status === "completed" && <small><Check size={13} />Completed by {action.completed_by ?? "Household"} · {formatDateTime(action.completed_at)}</small>}</div><div className="action-card__controls">{action.status === "completed" ? <button type="button" disabled={saving === action.id} onClick={() => onMutate(action, "undo")}>Undo</button> : <><label><span className="sr-only">Snooze duration for {action.title}</span><select aria-label={`Snooze duration for ${action.title}`} value={snoozeHours[action.id] ?? 24} onChange={(event) => onSnoozeHours(action.id, Number(event.target.value))}><option value={6}>6 hours</option><option value={24}>24 hours</option><option value={72}>3 days</option></select></label><button type="button" disabled={saving === action.id} onClick={() => onMutate(action, "snooze")}>Snooze</button>{!sensorManaged && <button className="complete-button" type="button" disabled={saving === action.id} onClick={() => onMutate(action, "complete")}><Check size={15} />Mark done</button>}</>}</div></article>; })}</div>}</section>;
+  return <section className="action-section"><div className="section-title"><h3>{title}</h3><span>{actions.length}</span></div>{actions.length === 0 ? <p className="section-empty">{empty}</p> : <div className="action-list">{actions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; const aiRecommended = action.type === "ai_recommendation"; return <article className={`action-card action-card--${action.status}`} key={action.id}><div className="action-card__priority">P{action.priority}</div><div className="action-card__copy"><span>{plantNames[action.plant_id] ?? "Unknown plant"}{aiRecommended && <em className="ai-recommendation-badge">AI recommendation</em>}</span><h4>{action.title}</h4><p>{action.observation}</p><strong>{action.recommendation}</strong>{sensorManaged && action.status !== "completed" && <small className="automatic-note">Sensor-managed: closes automatically when the condition recovers.</small>}{action.status === "snoozed" && <small><Clock3 size={13} />Snoozed until {formatDateTime(action.snoozed_until)}</small>}{action.status === "completed" && <small><Check size={13} />Completed by {action.completed_by ?? "Household"} · {formatDateTime(action.completed_at)}</small>}</div><div className="action-card__controls">{action.status === "completed" ? <button type="button" disabled={saving === action.id} onClick={() => onMutate(action, "undo")}>Undo</button> : <><label><span className="sr-only">Snooze duration for {action.title}</span><select aria-label={`Snooze duration for ${action.title}`} value={snoozeHours[action.id] ?? 24} onChange={(event) => onSnoozeHours(action.id, Number(event.target.value))}><option value={6}>6 hours</option><option value={24}>24 hours</option><option value={72}>3 days</option></select></label><button type="button" disabled={saving === action.id} onClick={() => onMutate(action, "snooze")}>Snooze</button>{!sensorManaged && <button className="complete-button" type="button" disabled={saving === action.id} onClick={() => onMutate(action, "complete")}><Check size={15} />Mark done</button>}</>}</div></article>; })}</div>}</section>;
 }
 
 function ActionHistory({ history, actions, plantNames }: { history: ActionHistoryEvent[]; actions: CareAction[]; plantNames: Record<string, string> }) {
@@ -443,6 +452,7 @@ function ActionHistory({ history, actions, plantNames }: { history: ActionHistor
     action_auto_completed: "Completed automatically after moisture recovery",
     action_snoozed: "Snoozed",
     action_reopened: "Reopened",
+    ai_recommendation_created: "AI recommendation added",
   };
   return <section className="action-section history-section"><div className="section-title"><h3>Action history</h3><span>{history.length}</span></div>{history.length === 0 ? <p className="section-empty">History appears after an action is snoozed, completed, or reopened.</p> : <div className="history-list">{history.map((event) => { const action = actionById[event.action_id]; return <article key={event.id}><span className={`history-icon history-icon--${event.event_type}`}><Check size={14} /></span><div><strong>{labels[event.event_type] ?? event.event_type}</strong><p>{action?.title ?? "Care action"}{action ? ` · ${plantNames[action.plant_id] ?? "Unknown plant"}` : ""}</p></div><small>{event.actor} · {formatDateTime(event.occurred_at)}</small></article>; })}</div>}</section>;
 }
@@ -471,7 +481,7 @@ function PlantDetailDialog({ plant, actions, onClose, onEdit, onMapping, onDocto
   const openActions = actions.filter((action) => action.status !== "completed");
   const hasWateringAction = openActions.some((action) => action.type === "low_moisture");
   const mappedSensors = plant.entity_mapping ? Object.values(plant.entity_mapping).filter(Boolean).length : 0;
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div><strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onDoctor}>Plant doctor</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div>{action.type === "ai_recommendation" && <span className="ai-recommendation-badge">AI recommendation</span>}<strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onDoctor}>Plant doctor</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
 }
 
 function EntityMappingDialog({ plant, onClose, onSave }: { plant: Plant; onClose: () => void; onSave: (plant: Plant, mapping: PlantEntityMapping) => Promise<void> }) {
@@ -509,20 +519,44 @@ function entityHasReading(entity: HomeAssistantEntity): boolean {
   return !["", "unknown", "unavailable", "none", "null"].includes(entity.state.trim().toLowerCase());
 }
 
-function DoctorDialog({ plant, onClose, onEdit }: { plant: Plant; onClose: () => void; onEdit: () => void }) {
+function DoctorDialog({ plant, onClose, onEdit, onAddAction }: { plant: Plant; onClose: () => void; onEdit: () => void; onAddAction: (plant: Plant, recommendation: string) => Promise<void> }) {
   const [consent, setConsent] = useState(false);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<PlantDoctorResponse | null>(null);
+  const [usage, setUsage] = useState<PlantDoctorUsageResponse | null>(null);
+  const [addingAction, setAddingAction] = useState(false);
+  const [actionAdded, setActionAdded] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const photo = plantPhotoUrl(plant);
+  useEffect(() => {
+    const controller = new AbortController();
+    void getPlantDoctorUsage(controller.signal).then(setUsage).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
   async function check() {
     if (!consent || !photo) return;
     setChecking(true); setMessage(null);
-    try { setResult(await diagnosePlant(plant.id)); }
+    try {
+      setResult(await diagnosePlant(plant.id));
+      setUsage(await getPlantDoctorUsage());
+    }
     catch (reason) { setMessage(reason instanceof Error ? reason.message : "Plant Doctor could not complete the check."); }
     finally { setChecking(false); }
   }
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog doctor-dialog" role="dialog" aria-modal="true" aria-labelledby="doctor-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant doctor" onClick={onClose}><X /></button><p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p><h2 id="doctor-dialog-title">Check {plant.display_name}</h2>{!photo ? <div className="doctor-empty"><Camera /><h3>A current photo is required</h3><p>Add or replace the photo in Edit plant, then return here for a visual check.</p><button className="secondary-button" type="button" onClick={onEdit}>Open Edit plant</button></div> : result ? <DoctorResult result={result} photo={photo} plantName={plant.display_name} /> : <><p className="dialog-subtitle">The stored photo and the latest moisture, temperature, and light values will be sent to Cloudflare for this check only.</p><img className="doctor-photo" src={photo} alt={`Photo to diagnose for ${plant.display_name}`} /><label className="consent-row"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />I agree to send this photo and limited plant context to Cloudflare Workers AI for one assessment.</label><p className="doctor-note">The result is guidance only. PlantCare will not create actions or change care automatically.</p></>}{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Close</button>{photo && !result && <button className="primary-button" type="button" disabled={!consent || checking} onClick={check}>{checking ? "Checking…" : "Send for diagnosis"}</button>}{result && <button className="secondary-button" type="button" onClick={() => { setResult(null); setConsent(false); }}>Check again</button>}</div></section></div>;
+  async function addAction() {
+    if (!result || actionAdded) return;
+    const recommendation = result.next_steps.join(" · ") || "Inspect the plant directly and confirm the visual assessment.";
+    setAddingAction(true); setMessage(null);
+    try { await onAddAction(plant, recommendation); setActionAdded(true); }
+    catch (reason) { setMessage(reason instanceof Error ? reason.message : "The AI recommendation could not be added."); }
+    finally { setAddingAction(false); }
+  }
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog doctor-dialog" role="dialog" aria-modal="true" aria-labelledby="doctor-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant doctor" onClick={onClose}><X /></button><p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p><h2 id="doctor-dialog-title">Check {plant.display_name}</h2>{!photo ? <div className="doctor-empty"><Camera /><h3>A current photo is required</h3><p>Add or replace the photo in Edit plant, then return here for a visual check.</p><button className="secondary-button" type="button" onClick={onEdit}>Open Edit plant</button></div> : result ? <DoctorResult result={result} photo={photo} plantName={plant.display_name} /> : <><p className="dialog-subtitle">The stored photo and the latest moisture, temperature, and light values will be sent to Cloudflare for this check only.</p><img className="doctor-photo" src={photo} alt={`Photo to diagnose for ${plant.display_name}`} /><DoctorUsage usage={usage} /><label className="consent-row"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />I agree to send this photo and limited plant context to Cloudflare Workers AI for one assessment.</label><p className="doctor-note">AI guidance will not change care automatically. After reviewing the result, you can choose to add its safe next checks to the care queue.</p></>}{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Close</button>{photo && !result && <button className="primary-button" type="button" disabled={!consent || checking} onClick={check}>{checking ? "Checking…" : "Send for diagnosis"}</button>}{result && <><button className="secondary-button" type="button" onClick={() => { setResult(null); setConsent(false); setActionAdded(false); }}>Check again</button><button className="primary-button" type="button" disabled={addingAction || actionAdded} onClick={addAction}>{actionAdded ? "Added to care queue" : addingAction ? "Adding…" : "Add AI recommendation"}</button></>}</div></section></div>;
+}
+
+function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
+  if (!usage) return <div className="doctor-usage doctor-usage--loading">Loading today's usage…</div>;
+  return <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder"><strong>{usage.checks_today} completed {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC</strong><span>Estimated {usage.estimated_neurons_per_check} neurons per check · {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day</span><small>Count includes successful checks made by this PlantCare installation.</small></aside>;
 }
 
 function DoctorResult({ result, photo, plantName }: { result: PlantDoctorResponse; photo: string; plantName: string }) {

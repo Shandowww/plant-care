@@ -41,8 +41,10 @@ const action = {
 
 function mockApi(actionFixture = action, plantFixture = plant) {
   let currentPlant = { ...plantFixture };
+  let doctorChecks = 0;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
+    if (url.endsWith("/plant-doctor/usage")) return new Response(JSON.stringify({ checks_today: doctorChecks, period_started_at: "2026-09-10T00:00:00Z", resets_at: "2026-09-11T00:00:00Z", daily_free_neuron_limit: 10000, estimated_neurons_per_check: "about 10–50" }), { status: 200 });
     if (url.endsWith("/actions/history")) return new Response(JSON.stringify({ events: [] }), { status: 200 });
     if (url.endsWith("/home-assistant/entities")) return new Response(JSON.stringify({ source: "simulator", areas: ["Bedroom", "Kitchen", "Living room"], entities: [
       { entity_id: "sensor.golden_pothos_soil_moisture", name: "Golden Pothos Soil moisture", device_class: "moisture", state: "18", unit: "%", area_name: "Kitchen", device_id: "device-pothos" },
@@ -67,6 +69,7 @@ function mockApi(actionFixture = action, plantFixture = plant) {
       return new Response(null, { status: 204 });
     }
     if (url.endsWith("/plants/plant-1/doctor") && init?.method === "POST") {
+      doctorChecks += 1;
       return new Response(JSON.stringify({
         summary: "The leaves look generally healthy.",
         observations: ["Leaves are mostly green."],
@@ -79,6 +82,16 @@ function mockApi(actionFixture = action, plantFixture = plant) {
         disclaimer: "Confirm suggestions before changing care.",
       }), { status: 200 });
     }
+    if (url.endsWith("/plants/plant-1/doctor/recommendation") && init?.method === "POST") {
+      return new Response(JSON.stringify({
+        ...action,
+        id: "ai-action-1",
+        type: "ai_recommendation",
+        title: "Review AI recommendation",
+        observation: "Suggested by Plant Doctor from a photo assessment.",
+        recommendation: JSON.parse(String(init.body)).recommendation,
+      }), { status: 200 });
+    }
     if (url.endsWith("/plants") && init?.method === "POST") {
       const payload = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ ...plant, ...payload, id: "plant-2", state: "sensor_issue", entity_mapping: payload.entity_mapping ?? null }), { status: 201 });
@@ -86,7 +99,7 @@ function mockApi(actionFixture = action, plantFixture = plant) {
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.5.0", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.5.1", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -172,16 +185,32 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
     fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    expect(await screen.findByText("0 completed checks since 00:00 UTC")).toBeInTheDocument();
+    expect(screen.getByText("Estimated about 10–50 neurons per check · 10,000 free neurons/day")).toBeInTheDocument();
     const send = screen.getByRole("button", { name: "Send for diagnosis" });
     expect(send).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(send);
     await screen.findByText("The leaves look generally healthy.");
     expect(screen.getByText(/11\.25 neurons/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add AI recommendation" }));
+    await screen.findByText("Added to care queue");
+    expect(screen.getByText("AI recommendation added to Golden Pothos's care queue.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/doctor",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ consent: true }) }),
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1/doctor/recommendation",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ recommendation: "Check the underside of the leaves." }) }),
+    );
+  });
+
+  it("labels AI recommendations in the care queue", async () => {
+    mockApi({ ...action, type: "ai_recommendation", title: "Review AI recommendation" });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: /Care queue/ }));
+    expect(await screen.findByText("AI recommendation")).toBeInTheDocument();
   });
 
   it("maps Home Assistant sensor entities from plant details", async () => {

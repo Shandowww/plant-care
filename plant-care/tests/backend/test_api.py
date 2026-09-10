@@ -47,7 +47,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.5.0",
+        "version": "0.5.1",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -283,6 +283,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         static_dir=tmp_path / "static",
     )
     with TestClient(create_app(settings, plant_doctor_client=doctor)) as client:
+        initial_usage = client.get("/api/v1/plant-doctor/usage")
         plant = client.get("/api/v1/plants").json()["plants"][1]
         source = BytesIO()
         Image.new("RGB", (2400, 1600), "green").save(source, format="JPEG")
@@ -292,6 +293,20 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         )
 
         response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
+        updated_usage = client.get("/api/v1/plant-doctor/usage")
+        recommendation = "Check the underside of the leaves before changing care."
+        created_action = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor/recommendation",
+            json={"recommendation": recommendation},
+        )
+        repeated_action = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor/recommendation",
+            json={"recommendation": recommendation},
+        )
+        empty_action = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor/recommendation",
+            json={"recommendation": "   "},
+        )
 
     assert response.status_code == 200
     assert response.json()["neurons"] == 12.5
@@ -302,6 +317,15 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         assert max(image.size) == 1280
     assert context.display_name == plant["display_name"]
     assert context.moisture == plant["moisture"]
+    assert initial_usage.json()["checks_today"] == 0
+    assert updated_usage.json()["checks_today"] == 1
+    assert updated_usage.json()["daily_free_neuron_limit"] == 10_000
+    assert updated_usage.json()["estimated_neurons_per_check"] == "about 10–50"
+    assert created_action.status_code == 200
+    assert created_action.json()["type"] == "ai_recommendation"
+    assert created_action.json()["recommendation"] == recommendation
+    assert repeated_action.json()["id"] == created_action.json()["id"]
+    assert empty_action.status_code == 422
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(
