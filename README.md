@@ -98,6 +98,10 @@ species-aware guidance where available and labelled indoor/outdoor fallbacks
 otherwise. Soil-moisture percentages depend on the sensor, substrate, and probe
 placement, so use the displayed moisture range as trend guidance.
 
+Plant Doctor receives the plant's saved friendly, common, and scientific names
+plus the matching care profile. Results display that identity explicitly; the
+model is asked to give species-aware guidance and flag a photo/name mismatch.
+
 ## Validation
 
 ```bash

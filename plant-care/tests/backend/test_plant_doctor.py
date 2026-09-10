@@ -2,6 +2,7 @@ import json
 
 import httpx2
 import pytest
+from plantcare.care_profiles import care_profile
 from plantcare.plant_doctor import (
     MODEL_ID,
     CloudflarePlantDoctor,
@@ -21,7 +22,21 @@ def context() -> PlantDoctorContext:
         moisture=31,
         temperature=24.5,
         illuminance=450,
+        temperature_range_celsius=(18, 29),
+        soil_moisture_sensor_range_percent=(25, 60),
+        care_profile_basis="golden pothos profile",
     )
+
+
+def test_care_profiles_are_species_specific_and_fallback_transparently() -> None:
+    monstera = care_profile("Monstera deliciosa", "Monstera", "indoor")
+    orchid = care_profile("Orchids", "Orchids", "indoor")
+    unknown = care_profile(None, "Unknown plant", "outdoor_exposed")
+
+    assert (monstera.temperature_minimum, monstera.temperature_maximum) == (16, 29)
+    assert (monstera.moisture_minimum, monstera.moisture_maximum) == (30, 65)
+    assert "orchid fallback" in orchid.basis
+    assert "species not confirmed" in unknown.basis
 
 
 @pytest.mark.asyncio
@@ -32,6 +47,11 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
         body = json.loads(request.content)
         assert body["image"].startswith("data:image/jpeg;base64,")
         assert "Kitchen Pothos" in body["messages"][1]["content"]
+        assert "Epipremnum aureum" in body["messages"][1]["content"]
+        assert (
+            '"starting_soil_moisture_sensor_band_percent":[25,60]' in body["messages"][1]["content"]
+        )
+        assert "The summary must name this plant" in body["messages"][1]["content"]
         return httpx2.Response(
             200,
             json={

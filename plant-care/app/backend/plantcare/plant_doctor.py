@@ -34,6 +34,9 @@ class PlantDoctorContext:
     moisture: float | None
     temperature: float | None
     illuminance: float | None
+    temperature_range_celsius: tuple[int, int]
+    soil_moisture_sensor_range_percent: tuple[int, int]
+    care_profile_basis: str
     history: tuple[PlantDoctorHistoryContext, ...] = ()
 
 
@@ -76,7 +79,11 @@ class CloudflarePlantDoctor:
                             {
                                 "role": "system",
                                 "content": (
-                                    "You provide cautious visual guidance for household plants. "
+                                    "You provide cautious, species-aware visual guidance for "
+                                    "household plants. Use the supplied plant identity as the "
+                                    "working identification, but explicitly flag it if the photo "
+                                    "appears inconsistent. Name the plant in the summary and make "
+                                    "advice specific to that taxon when possible. "
                                     "Do not claim certainty, prescribe pesticides, or treat sensor "
                                     "values as visual facts. Return only one JSON object with keys "
                                     "summary, observations, possible_issues, next_steps, "
@@ -134,6 +141,11 @@ def _prompt(context: PlantDoctorContext) -> str:
         "temperature_celsius": context.temperature,
         "illuminance_lux": context.illuminance,
     }
+    care_profile = {
+        "temperature_range_celsius": context.temperature_range_celsius,
+        "starting_soil_moisture_sensor_band_percent": (context.soil_moisture_sensor_range_percent),
+        "basis": context.care_profile_basis,
+    }
     history_context = [
         {
             "checked_at": item.checked_at,
@@ -155,13 +167,20 @@ def _prompt(context: PlantDoctorContext) -> str:
         )
     )
     return (
-        "Review the attached current photo of this plant for visible stress, damage, pests, "
-        "or care concerns. Distinguish direct observations from possibilities and suggest safe "
-        "physical checks before care changes.\n"
-        f"Plant: {context.display_name}; common name: {context.common_name}; "
-        f"scientific name: {context.scientific_name or 'unknown'}; location: {context.location}; "
+        f"Review the attached current photo of {context.display_name} for visible stress, damage, "
+        "pests, or care concerns. Distinguish direct observations from possibilities and suggest "
+        "safe physical checks before care changes. The summary must name this plant. If the photo "
+        "does not appear consistent with the supplied identity, say so rather than silently "
+        "switching to generic advice.\n"
+        f"Working identity — friendly name: {context.display_name}; common name: "
+        f"{context.common_name}; scientific name: {context.scientific_name or 'unknown'}; "
+        f"location: {context.location}; "
         f"exposure: {context.environment_type}.\n"
         f"Latest optional sensor context: {json.dumps(sensor_context, separators=(',', ':'))}.\n"
+        f"Care profile: {json.dumps(care_profile, separators=(',', ':'))}. Compare available "
+        "temperature and soil-moisture readings with this profile when relevant. Treat the soil "
+        "moisture percentage only as a starting sensor band because calibration, substrate, and "
+        "probe placement vary.\n"
         f"{history_instruction}"
     )
 

@@ -766,7 +766,7 @@ function DoctorDialog({
         <p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p>
         <h2 id="doctor-dialog-title">Check {plant.display_name}</h2>
         {result ? (
-          <DoctorResult result={result} photo={photoPreview} plantName={plant.display_name} />
+          <DoctorResult result={result} photo={photoPreview} plant={plant} />
         ) : (
           <>
             <p className="dialog-subtitle">
@@ -949,8 +949,8 @@ function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
   return <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder"><strong>{usage.checks_today} completed {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC</strong><span>Estimated {usage.estimated_neurons_per_check} neurons per check · {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day</span><small>Free-plan requests stop at the limit; Workers Paid may bill for overage. This local count includes successful PlantCare checks only.</small></aside>;
 }
 
-function DoctorResult({ result, photo, plantName }: { result: PlantDoctorResponse; photo: string | null; plantName: string }) {
-  return <div className="doctor-result">{photo && <img className="doctor-result__photo" src={photo} alt={`Diagnosed photo of ${plantName}`} />}<div className="doctor-result__summary"><span className={`confidence confidence--${result.confidence}`}>{result.confidence} confidence</span><h3>{result.summary}</h3></div>{result.observations.length > 0 && <DoctorList title="Visible observations" items={result.observations} />}{result.possible_issues.length > 0 && <DoctorList title="Possible issues" items={result.possible_issues} />}{result.next_steps.length > 0 && <DoctorList title="Safe next checks" items={result.next_steps} />}<p className="doctor-disclaimer">{result.disclaimer}</p><small>{result.provider} · {result.neurons === null ? "Usage unavailable" : `${result.neurons.toFixed(2)} neurons`}</small></div>;
+function DoctorResult({ result, photo, plant }: { result: PlantDoctorResponse; photo: string | null; plant: Plant }) {
+  return <div className="doctor-result">{photo && <img className="doctor-result__photo" src={photo} alt={`Diagnosed photo of ${plant.display_name}`} />}<p className="doctor-result__identity"><strong>Assessment for {plant.display_name}</strong><span>{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : " · species not confirmed"}</span></p><div className="doctor-result__summary"><span className={`confidence confidence--${result.confidence}`}>{result.confidence} confidence</span><h3>{result.summary}</h3></div>{result.observations.length > 0 && <DoctorList title="Visible observations" items={result.observations} />}{result.possible_issues.length > 0 && <DoctorList title="Possible issues" items={result.possible_issues} />}{result.next_steps.length > 0 && <DoctorList title="Safe next checks" items={result.next_steps} />}<p className="doctor-disclaimer">{result.disclaimer}</p><small>{result.provider} · {result.neurons === null ? "Usage unavailable" : `${result.neurons.toFixed(2)} neurons`}</small></div>;
 }
 
 function DoctorList({ title, items }: { title: string; items: string[] }) {

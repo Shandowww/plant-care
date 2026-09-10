@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.2
+
+- Make Plant Doctor assessments explicitly species-aware: the prompt now treats
+  the saved common/scientific name as the working identity, requires the plant
+  to be named in the summary, and asks the model to flag a photo/name mismatch.
+- Send the Doctor the same species temperature range and starting soil-moisture
+  sensor band shown by PlantCare so it can interpret available readings in
+  context rather than returning purely general tips.
+- Display the assessed plant identity above every Doctor result and distinguish
+  a sensor-specific moisture band from a universal horticultural percentage.
+- Audit and extend temperature profiles for Monstera, snake plant, peace lily,
+  devil's backbone, Madagascar jewel, and warm-growing orchid fallbacks.
+
 ## 0.8.1
 
 - Hydrate live sensor values from Home Assistant immediately after a plant is

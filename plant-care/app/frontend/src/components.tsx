@@ -33,10 +33,12 @@ type MoistureProfile = { minimum: number; maximum: number; note: string };
 
 const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
   "epipremnum aureum": { minimum: 18, maximum: 29, note: "Typical range for golden pothos" },
-  "monstera deliciosa": { minimum: 18, maximum: 30, note: "Typical range for Monstera deliciosa" },
+  "monstera deliciosa": { minimum: 16, maximum: 29, note: "Typical range for Monstera deliciosa" },
   "olea europaea": { minimum: 10, maximum: 30, note: "Broad typical range for a potted olive tree" },
-  "dracaena trifasciata": { minimum: 15, maximum: 29, note: "Typical range for a snake plant" },
-  spathiphyllum: { minimum: 18, maximum: 29, note: "Typical range for a peace lily" },
+  "dracaena trifasciata": { minimum: 16, maximum: 29, note: "Typical range for a snake plant" },
+  spathiphyllum: { minimum: 20, maximum: 29, note: "Typical range for a peace lily" },
+  "euphorbia tithymaloides": { minimum: 16, maximum: 29, note: "Typical range for devil's backbone" },
+  "euphorbia leuconeura": { minimum: 15, maximum: 30, note: "Typical range for Madagascar jewel" },
 };
 
 const speciesMoistureProfiles: Record<string, MoistureProfile> = {
@@ -58,6 +60,10 @@ function temperatureProfile(plant: Plant): TemperatureProfile {
       scientificName.startsWith(`${name} `),
     );
     if (genus) return genus[1];
+  }
+  const commonName = plant.common_name.trim().toLowerCase();
+  if (commonName.includes("orchid") || scientificName?.includes("phalaenopsis")) {
+    return { minimum: 16, maximum: 29, note: "Broad warm-growing orchid fallback; confirm the exact orchid for a narrower range" };
   }
   return plant.environment_type === "indoor"
     ? { minimum: 18, maximum: 29, note: "General indoor fallback until the species is confirmed" }
@@ -169,7 +175,7 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
           </div>
           {moistureOpen && (
             <div className="reading-range-note" id={moistureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
-              <strong>Recommended soil moisture range: {preferredMoisture.minimum}–{preferredMoisture.maximum}%</strong>
+              <strong>Suggested soil-moisture sensor band: {preferredMoisture.minimum}–{preferredMoisture.maximum}%</strong>
               <span>{preferredMoisture.note}. Use the trend as guidance because readings vary by sensor, substrate, and placement.</span>
             </div>
           )}

@@ -348,6 +348,9 @@ button { color: inherit; }
 .doctor-result { display: grid; gap: 11px; }
 .doctor-result__photo { display: block; width: 100%; height: 190px; object-fit: cover; border-radius: 10px; }
 .doctor-result__summary { padding: 13px; background: var(--forest-soft); border-radius: 9px; }
+.doctor-result__identity { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 10px 12px; background: #eef4ef; border-left: 3px solid var(--green); border-radius: 7px; }
+.doctor-result__identity strong { color: var(--ink); }
+.doctor-result__identity span { color: var(--muted); font-size: 12px; }
 .doctor-result__summary h3 { margin: 8px 0 0; color: #304a3d; font-size: 13px; line-height: 1.45; }
 .confidence { display: inline-flex; padding: 4px 7px; color: #426b57; background: white; border-radius: 999px; font-size: 8px; font-weight: 800; text-transform: capitalize; }
 .confidence--low { color: #8a5522; background: #fff5df; }

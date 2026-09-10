@@ -135,7 +135,7 @@ function mockApi(actionFixture = action, plantFixture = plant, simulator = true)
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.1", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.2", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }
@@ -225,7 +225,7 @@ describe("portal", () => {
       name: "Moisture 18 percent; show recommended range",
     });
     fireEvent.click(moisture);
-    expect(screen.getByText("Recommended soil moisture range: 25–60%")).toBeInTheDocument();
+    expect(screen.getByText("Suggested soil-moisture sensor band: 25–60%")).toBeInTheDocument();
     expect(screen.getByText(/readings vary by sensor, substrate, and placement/)).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Golden Pothos" })).not.toBeInTheDocument();
   });
@@ -292,6 +292,8 @@ describe("portal", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(send);
     await screen.findByText("The leaves look generally healthy.");
+    expect(screen.getByText("Assessment for Golden Pothos")).toBeInTheDocument();
+    expect(screen.getByText("Golden pothos · Epipremnum aureum")).toBeInTheDocument();
     expect(screen.getByText(/11\.25 neurons/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add AI recommendation" }));
     await screen.findByText("Added to care queue");

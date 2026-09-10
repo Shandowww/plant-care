@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 
 from . import __version__
 from .auth import AuthService, Identity, ensure_ingress
+from .care_profiles import care_profile
 from .config import Settings, get_settings
 from .database import Database
 from .home_assistant import (
@@ -712,6 +713,11 @@ def create_app(
                     )
                 ).all()
             )
+            profile = care_profile(
+                plant.scientific_name,
+                plant.common_name,
+                plant.environment_type,
+            )
             assessment = await plant_doctor.analyze(
                 analysis_photo,
                 PlantDoctorContext(
@@ -723,6 +729,15 @@ def create_app(
                     moisture=plant.moisture,
                     temperature=plant.temperature,
                     illuminance=plant.illuminance,
+                    temperature_range_celsius=(
+                        profile.temperature_minimum,
+                        profile.temperature_maximum,
+                    ),
+                    soil_moisture_sensor_range_percent=(
+                        profile.moisture_minimum,
+                        profile.moisture_maximum,
+                    ),
+                    care_profile_basis=profile.basis,
                     history=tuple(
                         PlantDoctorHistoryContext(
                             checked_at=visit.created_at.isoformat(),

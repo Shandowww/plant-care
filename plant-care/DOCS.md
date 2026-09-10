@@ -138,6 +138,25 @@ same species/fallback approach. Treat the percentage as trend guidance rather
 than an absolute horticultural threshold because different sensors, substrates,
 and probe positions can report different values for the same pot.
 
+PlantCare's **Moisture** value means moisture in the potting medium. Some Home
+Assistant plant probes classify that entity as `humidity`, which PlantCare also
+accepts, but it is not the same as room relative humidity. This distinction is
+especially important for orchids: their preferred air humidity does not define
+a valid bark- or moss-moisture sensor percentage.
+
+Plant Doctor receives the friendly, common, and scientific names saved for the
+plant, together with the matching care profile. It is instructed to use that as
+the working identification, mention the plant in its summary, compare available
+sensor readings with the profile, and flag a photo that appears inconsistent
+with the saved identity. If the species is not confirmed, it receives a clearly
+labelled indoor, outdoor-container, or warm-growing-orchid fallback instead.
+
+The bundled profiles use conservative household-growing guidance from sources
+including the NC State Extension Plant Toolbox and the American Orchid Society.
+Temperature bands are species guidance. Soil-moisture bands are deliberately
+labelled as sensor starting points rather than universal targets: potting media,
+sensor calibration, probe position, and plant growth all affect the percentage.
+
 Plant details also include a bundled care guide. Identified plants receive a
 different species-specific featured tip on each visit, with controls to shuffle
 again or expand all tips. Unidentified plants receive clearly labelled general

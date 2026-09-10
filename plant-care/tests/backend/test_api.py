@@ -76,7 +76,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.8.1",
+        "version": "0.8.2",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -352,6 +352,9 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         assert max(image.size) == 1280
     assert context.display_name == plant["display_name"]
     assert context.moisture == plant["moisture"]
+    assert context.temperature_range_celsius == (18, 29)
+    assert context.soil_moisture_sensor_range_percent == (25, 60)
+    assert context.care_profile_basis == "golden pothos profile"
     assert context.history == ()
     assert doctor.calls[1][1].history[0].decision == "accepted"
     assert doctor.calls[1][1].history[0].outcome == "did_not_help"
