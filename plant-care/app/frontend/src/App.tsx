@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Shuffle,
   SlidersHorizontal,
   Sprout,
   TriangleAlert,
@@ -49,6 +50,7 @@ import {
 } from "./api";
 import { PlantCard } from "./components";
 import { plantImage, plantPhotoUrl } from "./plant-images";
+import { plantTipCollection } from "./plant-tips";
 import type {
   ActionHistoryEvent,
   CareAction,
@@ -111,6 +113,7 @@ function App() {
   const [view, setView] = useState<View>(viewFromHash);
   const [openMenu, setOpenMenu] = useState<MenuName>(null);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
+  const [tipVisits, setTipVisits] = useState<Record<string, number>>({});
   const [doctorPlant, setDoctorPlant] = useState<Plant | null>(null);
   const [addPlantOpen, setAddPlantOpen] = useState(false);
   const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
@@ -218,6 +221,11 @@ function App() {
   const activeActions = actions.filter((action) => action.status !== "completed");
   const currentDate = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase();
 
+  function showPlantDetails(plant: Plant) {
+    setTipVisits((current) => ({ ...current, [plant.id]: (current[plant.id] ?? -1) + 1 }));
+    setSelectedPlant(plant);
+  }
+
   async function handleLogin(password: string) {
     await login(password);
     await Promise.all([refreshPlants(), refreshActions(), refreshActionHistory()]);
@@ -243,17 +251,27 @@ function App() {
     }
   }
 
-  async function handleCreatePlant(payload: PlantCreate) {
-    const plant = await createPlant(payload);
+  async function handleCreatePlant(payload: PlantCreate, photo: File | null) {
+    let plant = await createPlant(payload);
+    let photoWarning = false;
+    if (photo) {
+      try {
+        plant = await uploadPlantPhoto(plant.id, photo);
+      } catch {
+        photoWarning = true;
+      }
+    }
     if (health?.simulator === false) {
       try { await syncHomeAssistant(); } catch { /* The background sync will retry. */ }
     }
     const response = await refreshPlants();
     const refreshed = response.plants.find((item) => item.id === plant.id) ?? plant;
     setAddPlantOpen(false);
-    setSelectedPlant(refreshed);
+    showPlantDetails(refreshed);
     window.location.hash = "plants";
-    setToast(`${plant.display_name} was added with its Home Assistant sensors.`);
+    setToast(photoWarning
+      ? `${plant.display_name} was added, but the photo could not be saved. You can retry in Edit plant.`
+      : `${plant.display_name} was added with its Home Assistant sensors${photo ? " and photo" : ""}.`);
   }
 
   async function handleUpdatePlant(
@@ -271,7 +289,7 @@ function App() {
     const response = await refreshPlants();
     const refreshed = response.plants.find((item) => item.id === plant.id) ?? updated;
     setEditingPlant(null);
-    setSelectedPlant(refreshed);
+    showPlantDetails(refreshed);
     setToast(`${refreshed.display_name} was updated.`);
   }
 
@@ -284,12 +302,25 @@ function App() {
   }
 
   async function handleUpdateMapping(plant: Plant, mapping: PlantEntityMapping) {
-    await updatePlantEntityMapping(plant.id, mapping);
-    if (health && !health.simulator) await syncHomeAssistant();
-    const response = await refreshPlants();
-    const updated = response.plants.find((item) => item.id === plant.id) ?? plant;
+    const savedMapping = await updatePlantEntityMapping(plant.id, mapping);
+    const locallyUpdated = { ...plant, entity_mapping: savedMapping };
+    setData((current) => current ? {
+      ...current,
+      plants: current.plants.map((item) => item.id === plant.id ? locallyUpdated : item),
+    } : current);
     setMappingPlant(null);
-    setSelectedPlant(updated);
+    showPlantDetails(locallyUpdated);
+    if (health && !health.simulator) {
+      try {
+        await syncHomeAssistant();
+        const response = await refreshPlants();
+        const refreshed = response.plants.find((item) => item.id === plant.id);
+        if (refreshed) setSelectedPlant(refreshed);
+      } catch {
+        setToast(`${plant.display_name} mapping was saved. Live readings will retry automatically.`);
+        return;
+      }
+    }
     setToast(`${plant.display_name} sensor mapping was updated.`);
   }
 
@@ -363,7 +394,7 @@ function App() {
             onStatus={setStatusFilter}
             onSort={setSort}
             onAdd={() => setAddPlantOpen(true)}
-            onDetails={setSelectedPlant}
+            onDetails={showPlantDetails}
           />
         ) : view === "actions" ? (
           <ActionQueue actions={actions} history={actionHistory} plants={data?.plants ?? []} error={actionError} saving={savingAction} snoozeHours={snoozeHours} onSnoozeHours={(id, hours) => setSnoozeHours((current) => ({ ...current, [id]: hours }))} onMutate={mutateAction} />
@@ -374,8 +405,8 @@ function App() {
         )}
       </main>
 
-      {selectedPlant && <PlantDetailDialog plant={selectedPlant} actions={actions.filter((action) => action.plant_id === selectedPlant.id)} onClose={() => setSelectedPlant(null)} onEdit={() => { setEditingPlant(selectedPlant); setSelectedPlant(null); }} onMapping={() => { setMappingPlant(selectedPlant); setSelectedPlant(null); }} onDoctor={() => { setSelectedPlant(null); setDoctorPlant(selectedPlant); }} onMarkDone={(action) => mutateAction(action, "complete")} onSimulateWatering={() => handleSimulatedWatering(selectedPlant)} />}
-      {doctorPlant && <DoctorDialog plant={doctorPlant} onClose={() => setDoctorPlant(null)} onEdit={() => { setEditingPlant(doctorPlant); setDoctorPlant(null); }} onAddAction={handleDoctorRecommendation} />}
+      {selectedPlant && <PlantDetailDialog plant={selectedPlant} tipVisit={tipVisits[selectedPlant.id] ?? 0} actions={actions.filter((action) => action.plant_id === selectedPlant.id)} onClose={() => setSelectedPlant(null)} onEdit={() => { setEditingPlant(selectedPlant); setSelectedPlant(null); }} onMapping={() => { setMappingPlant(selectedPlant); setSelectedPlant(null); }} onDoctor={() => { setSelectedPlant(null); setDoctorPlant(selectedPlant); }} onMarkDone={(action) => mutateAction(action, "complete")} onSimulateWatering={() => handleSimulatedWatering(selectedPlant)} />}
+      {doctorPlant && <DoctorDialog plant={doctorPlant} onClose={() => setDoctorPlant(null)} onAddAction={handleDoctorRecommendation} />}
       {addPlantOpen && <AddPlantDialog onClose={() => setAddPlantOpen(false)} onCreate={handleCreatePlant} />}
       {editingPlant && <EditPlantDialog plant={editingPlant} onClose={() => setEditingPlant(null)} onUpdate={handleUpdatePlant} onArchive={handleArchivePlant} />}
       {mappingPlant && <EntityMappingDialog plant={mappingPlant} onClose={() => setMappingPlant(null)} onSave={handleUpdateMapping} />}
@@ -480,12 +511,69 @@ function ProfileMenu({ onClose }: { onClose: () => void }) {
   return <div className="popover profile-popover" role="dialog" aria-label="Profile menu"><strong>Home Assistant user</strong><span>Authenticated household member</span><a href="#settings" onClick={onClose}>Portal settings</a><a href="#help" onClick={onClose}>Diagnostics</a></div>;
 }
 
-function PlantDetailDialog({ plant, actions, onClose, onEdit, onMapping, onDoctor, onMarkDone, onSimulateWatering }: { plant: Plant; actions: CareAction[]; onClose: () => void; onEdit: () => void; onMapping: () => void; onDoctor: () => void; onMarkDone: (action: CareAction) => void; onSimulateWatering: () => void }) {
+function PlantTipsSection({ plant, visit }: { plant: Plant; visit: number }) {
+  const collection = plantTipCollection(plant);
+  const [tipIndex, setTipIndex] = useState(visit % collection.tips.length);
+  const [showAll, setShowAll] = useState(false);
+  const featured = collection.tips[tipIndex] ?? collection.tips[0]!;
+
+  function shuffleTip() {
+    setTipIndex((current) => {
+      const offset = 1 + Math.floor(Math.random() * (collection.tips.length - 1));
+      return (current + offset) % collection.tips.length;
+    });
+  }
+
+  return (
+    <section className="detail-tips" aria-labelledby="plant-tips-title">
+      <div className="detail-tips__heading">
+        <div>
+          <span className="eyebrow">GROW WITH CONFIDENCE</span>
+          <h3 id="plant-tips-title">Tips for {plant.display_name}</h3>
+          <p>{collection.label}{collection.fallback ? " · identify the species for tailored tips" : ""}</p>
+        </div>
+        <button className="tip-shuffle" type="button" onClick={shuffleTip} aria-label={`Shuffle care tip for ${plant.display_name}`}>
+          <Shuffle size={15} aria-hidden="true" />
+          Another tip
+        </button>
+      </div>
+      <article className="featured-tip" aria-live="polite">
+        <span>{featured.category}</span>
+        <div>
+          <h4>{featured.title}</h4>
+          <p>{featured.body}</p>
+        </div>
+      </article>
+      <button
+        className="show-all-tips"
+        type="button"
+        aria-expanded={showAll}
+        aria-controls={`all-tips-${plant.id}`}
+        onClick={() => setShowAll((current) => !current)}
+      >
+        {showAll ? "Hide all tips" : `Show all tips (${collection.tips.length})`}
+        <ChevronDown size={15} aria-hidden="true" />
+      </button>
+      {showAll && (
+        <div className="all-tips" id={`all-tips-${plant.id}`}>
+          {collection.tips.map((tip) => (
+            <article key={tip.title}>
+              <span>{tip.category}</span>
+              <div><h4>{tip.title}</h4><p>{tip.body}</p></div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PlantDetailDialog({ plant, tipVisit, actions, onClose, onEdit, onMapping, onDoctor, onMarkDone, onSimulateWatering }: { plant: Plant; tipVisit: number; actions: CareAction[]; onClose: () => void; onEdit: () => void; onMapping: () => void; onDoctor: () => void; onMarkDone: (action: CareAction) => void; onSimulateWatering: () => void }) {
   const image = plantImage(plant);
   const openActions = actions.filter((action) => action.status !== "completed");
   const hasWateringAction = openActions.some((action) => action.type === "low_moisture");
   const mappedSensors = plant.entity_mapping ? Object.values(plant.entity_mapping).filter(Boolean).length : 0;
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div>{action.type === "ai_recommendation" && <span className="ai-recommendation-badge">AI recommendation</span>}<strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onDoctor}>Plant doctor</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog plant-dialog" role="dialog" aria-modal="true" aria-labelledby="plant-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant details" onClick={onClose}><X /></button>{image && <figure className="detail-photo"><img src={image.src} alt={image.alt} /><figcaption>{image.credit}</figcaption></figure>}<span className={`status-pill status-pill--${plant.state}`}>{plant.state.replaceAll("_", " ")}</span><p className="eyebrow">{plant.location} · {plant.environment_type.replaceAll("_", " ")}</p><h2 id="plant-dialog-title">{plant.display_name}</h2><p className="dialog-subtitle">{plant.common_name}{plant.scientific_name ? ` · ${plant.scientific_name}` : ""}</p><div className="mapping-banner"><div><strong>Home Assistant sensors</strong><small>{mappedSensors === 0 ? "No entities mapped" : `${mappedSensors} of 4 entities mapped`}</small></div><button type="button" onClick={onMapping}>Manage sensor mapping</button></div><div className="detail-readings"><div><span>Moisture</span><strong>{plant.moisture === null ? "No reading" : `${plant.moisture}%`}</strong><small>{plant.moisture_status}</small></div><div><span>Temperature</span><strong>{plant.temperature === null ? "No reading" : `${plant.temperature.toFixed(1)}°C`}</strong><small>{plant.temperature_status}</small></div><div><span>Battery</span><strong>{plant.battery === null ? "No reading" : `${plant.battery}%`}</strong><small>Sensor power</small></div><div><span>Illuminance</span><strong>{plant.illuminance === null ? "Not mapped" : `${plant.illuminance} lx`}</strong><small>Optional reading</small></div></div><PlantTipsSection plant={plant} visit={tipVisit} /><section className="detail-actions"><h3>Care actions</h3>{openActions.map((action) => { const sensorManaged = action.type === "low_moisture" || action.type === "sensor_issue"; return <div className="detail-action-row" key={action.id}><div>{action.type === "ai_recommendation" && <span className="ai-recommendation-badge">AI recommendation</span>}<strong>{action.title}</strong><p>{action.recommendation}</p>{sensorManaged && <small>Sensor-managed: closes automatically when the condition recovers.</small>}</div>{!sensorManaged && <button type="button" onClick={() => onMarkDone(action)}>Mark done</button>}</div>; })}{openActions.length === 0 && <p>No open actions for this plant.</p>}{hasWateringAction && <button className="simulate-button" type="button" onClick={onSimulateWatering}>Simulate confirmed watering</button>}</section><div className="dialog__footer"><button className="secondary-button" type="button" onClick={onEdit}>Edit plant</button><button className="secondary-button" type="button" onClick={onDoctor}>Plant doctor</button><button className="primary-button" type="button" onClick={onClose}>Done</button></div></section></div>;
 }
 
 function EntityMappingDialog({ plant, onClose, onSave }: { plant: Plant; onClose: () => void; onSave: (plant: Plant, mapping: PlantEntityMapping) => Promise<void> }) {
@@ -523,15 +611,27 @@ function entityHasReading(entity: HomeAssistantEntity): boolean {
   return !["", "unknown", "unavailable", "none", "null"].includes(entity.state.trim().toLowerCase());
 }
 
+function usePhotoPreview(file: File | null): string | null {
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file || typeof URL.createObjectURL !== "function") {
+      setPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return preview;
+}
+
 function DoctorDialog({
   plant,
   onClose,
-  onEdit,
   onAddAction,
 }: {
   plant: Plant;
   onClose: () => void;
-  onEdit: () => void;
   onAddAction: (plant: Plant, recommendation: string, visitId: string | null) => Promise<void>;
 }) {
   const [consent, setConsent] = useState(false);
@@ -544,7 +644,8 @@ function DoctorDialog({
   const [actionDeclined, setActionDeclined] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const photo = plantPhotoUrl(plant);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const photoPreview = usePhotoPreview(photoFile);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -565,11 +666,11 @@ function DoctorDialog({
   }
 
   async function check() {
-    if (!consent || !photo) return;
+    if (!consent || !photoFile) return;
     setChecking(true);
     setMessage(null);
     try {
-      setResult(await diagnosePlant(plant.id));
+      setResult(await diagnosePlant(plant.id, photoFile));
       setActionAdded(false);
       setActionDeclined(false);
       await refreshDoctorData();
@@ -658,29 +759,36 @@ function DoctorDialog({
         </button>
         <p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p>
         <h2 id="doctor-dialog-title">Check {plant.display_name}</h2>
-        {!photo ? (
-          <div className="doctor-empty">
-            <Camera />
-            <h3>A current photo is required</h3>
-            <p>Add or replace the photo in Edit plant, then return here for a visual check.</p>
-            <button className="secondary-button" type="button" onClick={onEdit}>
-              Open Edit plant
-            </button>
-          </div>
-        ) : result ? (
-          <DoctorResult result={result} photo={photo} plantName={plant.display_name} />
+        {result ? (
+          <DoctorResult result={result} photo={photoPreview} plantName={plant.display_name} />
         ) : (
           <>
             <p className="dialog-subtitle">
-              The current photo, latest sensor values, and up to five recent Doctor summaries,
-              recommendations, decisions, and outcomes will be sent to Cloudflare for this check.
-              Previous photos are not sent.
+              Choose or take a current diagnostic photo. Your cover photo stays unchanged. The
+              selected photo, latest sensor values, and up to five recent Doctor summaries,
+              decisions, and outcomes will be sent to Cloudflare for this check.
             </p>
-            <img
-              className="doctor-photo"
-              src={photo}
-              alt={`Photo to diagnose for ${plant.display_name}`}
-            />
+            {photoPreview ? (
+              <div className="doctor-photo-selection">
+                <img className="doctor-photo" src={photoPreview} alt={`Photo to diagnose for ${plant.display_name}`} />
+                <label className="photo-picker doctor-photo-replace">
+                  <ImagePlus size={17} />
+                  <span><strong>Choose a different photo</strong><small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small></span>
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} />
+                </label>
+              </div>
+            ) : (
+              <div className="doctor-empty">
+                <Camera />
+                <h3>Choose a current diagnostic photo</h3>
+                <p>On iPhone you can take a new picture or select one from your photo library.</p>
+                <label className="photo-picker doctor-photo-picker">
+                  <ImagePlus size={18} />
+                  <span><strong>Take or choose a photo</strong><small>It will not replace the plant's cover photo</small></span>
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} />
+                </label>
+              </div>
+            )}
             <DoctorUsage usage={usage} />
             <label className="consent-row">
               <input
@@ -692,8 +800,9 @@ function DoctorDialog({
               one assessment.
             </label>
             <p className="doctor-note">
-              Results are saved locally as patient history. Nothing changes automatically; you
-              decide whether to add the recommendation to the care queue and whether it helped.
+              PlantCare does not store this diagnostic photo or replace the cover image. Results
+              are saved locally as patient history; you decide whether to add the recommendation
+              to the care queue and whether it helped.
             </p>
           </>
         )}
@@ -713,11 +822,11 @@ function DoctorDialog({
           <button className="secondary-button" type="button" onClick={onClose}>
             Close
           </button>
-          {photo && !result && (
+          {!result && (
             <button
               className="primary-button"
               type="button"
-              disabled={!consent || checking}
+              disabled={!photoFile || !consent || checking}
               onClick={check}
             >
               {checking ? "Checking…" : "Send for diagnosis"}
@@ -730,6 +839,7 @@ function DoctorDialog({
                 type="button"
                 onClick={() => {
                   setResult(null);
+                  setPhotoFile(null);
                   setConsent(false);
                   setActionAdded(false);
                   setActionDeclined(false);
@@ -833,8 +943,8 @@ function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
   return <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder"><strong>{usage.checks_today} completed {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC</strong><span>Estimated {usage.estimated_neurons_per_check} neurons per check · {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day</span><small>Free-plan requests stop at the limit; Workers Paid may bill for overage. This local count includes successful PlantCare checks only.</small></aside>;
 }
 
-function DoctorResult({ result, photo, plantName }: { result: PlantDoctorResponse; photo: string; plantName: string }) {
-  return <div className="doctor-result"><img className="doctor-result__photo" src={photo} alt={`Diagnosed photo of ${plantName}`} /><div className="doctor-result__summary"><span className={`confidence confidence--${result.confidence}`}>{result.confidence} confidence</span><h3>{result.summary}</h3></div>{result.observations.length > 0 && <DoctorList title="Visible observations" items={result.observations} />}{result.possible_issues.length > 0 && <DoctorList title="Possible issues" items={result.possible_issues} />}{result.next_steps.length > 0 && <DoctorList title="Safe next checks" items={result.next_steps} />}<p className="doctor-disclaimer">{result.disclaimer}</p><small>{result.provider} · {result.neurons === null ? "Usage unavailable" : `${result.neurons.toFixed(2)} neurons`}</small></div>;
+function DoctorResult({ result, photo, plantName }: { result: PlantDoctorResponse; photo: string | null; plantName: string }) {
+  return <div className="doctor-result">{photo && <img className="doctor-result__photo" src={photo} alt={`Diagnosed photo of ${plantName}`} />}<div className="doctor-result__summary"><span className={`confidence confidence--${result.confidence}`}>{result.confidence} confidence</span><h3>{result.summary}</h3></div>{result.observations.length > 0 && <DoctorList title="Visible observations" items={result.observations} />}{result.possible_issues.length > 0 && <DoctorList title="Possible issues" items={result.possible_issues} />}{result.next_steps.length > 0 && <DoctorList title="Safe next checks" items={result.next_steps} />}<p className="doctor-disclaimer">{result.disclaimer}</p><small>{result.provider} · {result.neurons === null ? "Usage unavailable" : `${result.neurons.toFixed(2)} neurons`}</small></div>;
 }
 
 function DoctorList({ title, items }: { title: string; items: string[] }) {
@@ -849,7 +959,7 @@ function suggestedPlantName(entity: HomeAssistantEntity): string {
   return cleaned || entity.name;
 }
 
-function AddPlantDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (payload: PlantCreate) => Promise<void> }) {
+function AddPlantDialog({ onClose, onCreate }: { onClose: () => void; onCreate: (payload: PlantCreate, photo: File | null) => Promise<void> }) {
   const emptyMapping: PlantEntityMapping = { moisture_entity_id: null, temperature_entity_id: null, battery_entity_id: null, illuminance_entity_id: null };
   const [form, setForm] = useState<Omit<PlantCreate, "entity_mapping">>({ display_name: "", location: "", common_name: "", scientific_name: null, environment_type: "indoor" });
   const [mapping, setMapping] = useState<PlantEntityMapping>(emptyMapping);
@@ -857,8 +967,10 @@ function AddPlantDialog({ onClose, onCreate }: { onClose: () => void; onCreate: 
   const [areas, setAreas] = useState<string[]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [loadingSensors, setLoadingSensors] = useState(true);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const photoPreview = usePhotoPreview(photoFile);
   useEffect(() => {
     const controller = new AbortController();
     getHomeAssistantEntities(controller.signal)
@@ -903,9 +1015,9 @@ function AddPlantDialog({ onClose, onCreate }: { onClose: () => void; onCreate: 
     event.preventDefault(); setMessage(null);
     if (!mapping.moisture_entity_id) { setMessage("Choose a soil-moisture sensor first."); return; }
     setSaving(true);
-    try { await onCreate({ ...form, entity_mapping: mapping }); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "The plant could not be added."); setSaving(false); }
+    try { await onCreate({ ...form, entity_mapping: mapping }, photoFile); } catch (reason) { setMessage(reason instanceof Error ? reason.message : "The plant could not be added."); setSaving(false); }
   }
-  return <div className="dialog-backdrop" role="presentation"><section className="dialog add-plant-dialog" role="dialog" aria-modal="true" aria-labelledby="add-plant-title"><button className="dialog__close" type="button" aria-label="Close add plant" onClick={onClose}><X /></button><p className="eyebrow">SENSOR-FIRST SETUP</p><h2 id="add-plant-title">Add a plant</h2><p className="dialog-subtitle">Choose the Home Assistant sensors first. PlantCare suggests editable identity and area values from their metadata.</p><form className="dialog-form sensor-first-form" onSubmit={submit}><fieldset className="sensor-first-fields"><legend>1. Choose sensors</legend>{source && <span className="source-badge">{source === "simulator" ? "Simulator entity catalog" : "Live Home Assistant entities"}</span>}{loadingSensors ? <p className="mapping-loading">Loading sensor entities…</p> : <div className="sensor-grid"><EntitySelect required label="Soil moisture" value={mapping.moisture_entity_id} entities={optionsFor(["moisture", "humidity"])} onChange={(value) => chooseSensor("moisture_entity_id", value)} /><EntitySelect label="Temperature" value={mapping.temperature_entity_id} entities={optionsFor(["temperature"])} onChange={(value) => chooseSensor("temperature_entity_id", value)} /><EntitySelect label="Battery" value={mapping.battery_entity_id} entities={optionsFor(["battery"])} onChange={(value) => chooseSensor("battery_entity_id", value)} /><EntitySelect label="Illuminance (any sensor)" value={mapping.illuminance_entity_id} entities={optionsFor(["illuminance"])} onChange={(value) => chooseSensor("illuminance_entity_id", value)} /></div>}</fieldset><p className="sensor-hint">If the plant device has no usable illuminance reading, PlantCare suggests one from the same Home Assistant area. You can select any illuminance sensor.</p><p className="form-step">2. Review editable plant details</p><label>Friendly name<input required maxLength={120} value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} /></label><AreaSelect value={form.location} areas={areas} onChange={(location) => setForm({ ...form, location })} /><label>Common name<input required maxLength={120} value={form.common_name} onChange={(event) => setForm({ ...form, common_name: event.target.value })} /></label><label>Scientific name <small>optional</small><input maxLength={160} value={form.scientific_name ?? ""} onChange={(event) => setForm({ ...form, scientific_name: event.target.value || null })} /></label><label>Exposure<select value={form.environment_type} onChange={(event) => setForm({ ...form, environment_type: event.target.value as PlantCreate["environment_type"] })}><option value="indoor">Indoor</option><option value="outdoor_covered">Outdoor, covered</option><option value="outdoor_exposed">Outdoor, exposed</option></select></label>{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || loadingSensors}>{saving ? "Adding…" : "Add connected plant"}</button></div></form></section></div>;
+  return <div className="dialog-backdrop" role="presentation"><section className="dialog add-plant-dialog" role="dialog" aria-modal="true" aria-labelledby="add-plant-title"><button className="dialog__close" type="button" aria-label="Close add plant" onClick={onClose}><X /></button><p className="eyebrow">SENSOR-FIRST SETUP</p><h2 id="add-plant-title">Add a plant</h2><p className="dialog-subtitle">Choose the Home Assistant sensors first. PlantCare suggests editable identity and area values from their metadata.</p><form className="dialog-form sensor-first-form" onSubmit={submit}><fieldset className="sensor-first-fields"><legend>1. Choose sensors</legend>{source && <span className="source-badge">{source === "simulator" ? "Simulator entity catalog" : "Live Home Assistant entities"}</span>}{loadingSensors ? <p className="mapping-loading">Loading sensor entities…</p> : <div className="sensor-grid"><EntitySelect required label="Soil moisture" value={mapping.moisture_entity_id} entities={optionsFor(["moisture", "humidity"])} onChange={(value) => chooseSensor("moisture_entity_id", value)} /><EntitySelect label="Temperature" value={mapping.temperature_entity_id} entities={optionsFor(["temperature"])} onChange={(value) => chooseSensor("temperature_entity_id", value)} /><EntitySelect label="Battery" value={mapping.battery_entity_id} entities={optionsFor(["battery"])} onChange={(value) => chooseSensor("battery_entity_id", value)} /><EntitySelect label="Illuminance (any sensor)" value={mapping.illuminance_entity_id} entities={optionsFor(["illuminance"])} onChange={(value) => chooseSensor("illuminance_entity_id", value)} /></div>}</fieldset><p className="sensor-hint">If the plant device has no usable illuminance reading, PlantCare suggests one from the same Home Assistant area. You can select any illuminance sensor.</p><p className="form-step">2. Review editable plant details</p><label>Friendly name<input required maxLength={120} value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} /></label><AreaSelect value={form.location} areas={areas} onChange={(location) => setForm({ ...form, location })} /><label>Common name<input required maxLength={120} value={form.common_name} onChange={(event) => setForm({ ...form, common_name: event.target.value })} /></label><label>Scientific name <small>optional</small><input maxLength={160} value={form.scientific_name ?? ""} onChange={(event) => setForm({ ...form, scientific_name: event.target.value || null })} /></label><label>Exposure<select value={form.environment_type} onChange={(event) => setForm({ ...form, environment_type: event.target.value as PlantCreate["environment_type"] })}><option value="indoor">Indoor</option><option value="outdoor_covered">Outdoor, covered</option><option value="outdoor_exposed">Outdoor, exposed</option></select></label><fieldset className="edit-photo-section add-photo-section"><legend>3. Add a cover photo <small>optional</small></legend><div className="edit-photo-layout"><div className={`edit-photo-preview ${photoPreview ? "edit-photo-preview--image" : ""}`}>{photoPreview ? <img src={photoPreview} alt="New plant cover preview" /> : <><Camera /><span>You can add a cover now or later</span></>}</div><div className="edit-photo-controls"><p>This is the lasting image shown on the plant card. Doctor checks use a separate temporary photo.</p><label className="photo-picker"><ImagePlus size={18} /><span><strong>Choose or take a cover photo</strong><small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small></span><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)} /></label>{photoFile && <small className="selected-photo">Selected: {photoFile.name} · {(photoFile.size / 1024 / 1024).toFixed(1)} MB</small>}</div></div></fieldset>{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || loadingSensors}>{saving ? "Adding…" : "Add connected plant"}</button></div></form></section></div>;
 }
 
 function EditPlantDialog({ plant, onClose, onUpdate, onArchive }: { plant: Plant; onClose: () => void; onUpdate: (plant: Plant, payload: PlantCreate, photoChange: PlantPhotoChange) => Promise<void>; onArchive: (plant: Plant) => Promise<void> }) {

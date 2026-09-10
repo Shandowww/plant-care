@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0
+
+- Add a polished care-tips section to plant details with species-specific
+  guidance, a different featured tip on each visit, a shuffle control, and an
+  expandable full guide. Unidentified plants receive labelled indoor or
+  outdoor container guidance.
+- Ask for a separate diagnostic photo on every Plant Doctor visit instead of
+  reusing or replacing the plant's cover photo. Diagnostic uploads are
+  metadata-stripped for analysis and are not retained by PlantCare.
+- Allow an optional cover photo during sensor-first plant creation.
+- Keep saved sensor remapping changes even if the immediate Home Assistant
+  reading refresh fails, and surface detailed API validation errors.
+
 ## 0.6.1
 
 - Make each plant-card temperature reading expandable to show a typical species

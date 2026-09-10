@@ -108,10 +108,6 @@ class PlantListResponse(BaseModel):
     summary: DashboardSummary
 
 
-class PlantDoctorRequest(BaseModel):
-    consent: Literal[True]
-
-
 class PlantDoctorResponse(BaseModel):
     visit_id: str | None = None
     summary: str

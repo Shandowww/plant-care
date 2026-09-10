@@ -15,8 +15,8 @@ its own local database.
    PlantCare preselects companion entities from the same device and suggests an
    editable plant name and Home Assistant area. Illuminance may be mapped from
    another sensor in the same area when the plant device does not provide it.
-5. Open a plant's **Details**, choose **Edit plant**, and add or replace its
-   private photo in the same form as its name, area, and exposure.
+5. Optionally choose a private cover photo while adding the plant. It can be
+   added, replaced, or removed later from **Details → Edit plant**.
 6. Optional: configure Plant Doctor with your own Cloudflare account credentials
    as described below.
 7. If the standalone LAN view is needed, create its password from the ingress
@@ -60,10 +60,10 @@ stored in the repository.
 Personal photos remain inside the PlantCare app data directory. Uploads are
 limited to 10 MB and JPEG, PNG, WebP, HEIC, or HEIF input. PlantCare corrects orientation,
 resizes the image to at most 2048 pixels on either side, strips embedded metadata,
-and stores a private JPEG. Replacing or removing a photo is part of **Edit
-plant**, and cards and details update automatically. On iPhone and iPad, the
-system picker offers the photo library, camera, and files rather than opening
-the camera automatically.
+and stores a private JPEG. A cover photo can be selected during plant creation;
+replacing or removing it later is part of **Edit plant**, and cards and details
+update automatically. On iPhone and iPad, the system picker offers the photo
+library, camera, and files rather than opening the camera automatically.
 
 ## Optional Plant Doctor
 
@@ -79,12 +79,14 @@ the browser, is not written to logs or audit records, and must never be committe
 to Git. Every PlantCare installation uses its owner's Cloudflare credentials;
 there is no shared PlantCare AI account.
 
-For each check, PlantCare requires a current private photo and fresh consent.
-It sends Cloudflare a temporary metadata-free copy resized to at most 1280 pixels,
-the plant identity, location/exposure, and the latest moisture, temperature, and
-illuminance values. On later checks it also sends at most five recent text-only
-assessment summaries, recommendations, queue decisions, and outcomes. Previous
-photos, Home Assistant credentials, and entity IDs are not sent.
+For each check, PlantCare asks the user to take or choose a separate current
+diagnostic photo and provide fresh consent. It does not use, replace, or store
+the plant's cover photo for this purpose. It sends Cloudflare a temporary
+metadata-free copy resized to at most 1280 pixels, the plant identity,
+location/exposure, and the latest moisture, temperature, and illuminance values.
+On later checks it also sends at most five recent text-only assessment summaries,
+recommendations, queue decisions, and outcomes. Previous diagnostic photos,
+Home Assistant credentials, and entity IDs are not sent.
 
 Successful assessments and their sensor snapshots are saved locally under
 PlantCare's app data and included in Home Assistant backups. A user can decline
@@ -116,6 +118,10 @@ temperature, battery, and optional illuminance entities. Plant identity and
 history stay in PlantCare: changing or deleting a Home Assistant entity only
 marks the mapping unavailable and never deletes the plant.
 
+Mapping changes are committed before PlantCare requests an immediate reading
+refresh. If Home Assistant is temporarily unavailable, the selected mapping
+stays saved and the regular background synchronization retries automatically.
+
 `unknown`, `unavailable`, empty, non-numeric, wrong-unit, and out-of-range states
 are not stored as measurements and do not overwrite the last known good value.
 Repeated synchronization is idempotent using the Home Assistant update time.
@@ -124,3 +130,8 @@ On a plant card, select the temperature reading to reveal its typical normal
 range. Identified plants use a species profile; unidentified plants show a
 clearly labelled general indoor or outdoor fallback. These ranges are guidance
 only and do not currently trigger care actions or notifications.
+
+Plant details also include a bundled care guide. Identified plants receive a
+different species-specific featured tip on each visit, with controls to shuffle
+again or expand all tips. Unidentified plants receive clearly labelled general
+indoor or outdoor container guidance until their species is entered.

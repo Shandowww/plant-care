@@ -38,6 +38,26 @@ class FailingPlantDoctor:
         raise PlantDoctorProviderError(self.kind)  # type: ignore[arg-type]
 
 
+def diagnostic_photo(*, size: tuple[int, int] = (64, 64), color: str = "green") -> bytes:
+    source = BytesIO()
+    Image.new("RGB", size, color).save(source, format="JPEG")
+    return source.getvalue()
+
+
+def request_diagnosis(
+    client: TestClient,
+    plant_id: str,
+    photo: bytes,
+    *,
+    consent: bool = True,
+):
+    return client.post(
+        f"/api/v1/plants/{plant_id}/doctor",
+        data={"consent": str(consent).lower()},
+        files={"photo": ("diagnostic.jpg", photo, "image/jpeg")},
+    )
+
+
 @pytest.fixture
 def development_client(tmp_path: Path) -> TestClient:
     settings = Settings(
@@ -56,7 +76,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.6.1",
+        "version": "0.7.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -247,36 +267,28 @@ def test_plant_photo_accepts_iphone_heic(development_client: TestClient) -> None
 def test_plant_doctor_requires_explicit_consent(development_client: TestClient) -> None:
     plant = development_client.get("/api/v1/plants").json()["plants"][0]
 
+    response = request_diagnosis(development_client, plant["id"], diagnostic_photo(), consent=False)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Explicit consent is required for each Plant Doctor check."
+
+
+def test_plant_doctor_requires_a_separate_diagnostic_photo(
+    development_client: TestClient,
+) -> None:
+    plant = development_client.get("/api/v1/plants").json()["plants"][0]
+
     response = development_client.post(
-        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": False}
+        f"/api/v1/plants/{plant['id']}/doctor", data={"consent": "true"}
     )
 
     assert response.status_code == 422
 
 
-def test_plant_doctor_requires_a_photo(development_client: TestClient) -> None:
-    plant = development_client.get("/api/v1/plants").json()["plants"][0]
-
-    response = development_client.post(
-        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
-    )
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Add a current plant photo before running Plant Doctor."
-
-
 def test_plant_doctor_reports_missing_configuration(development_client: TestClient) -> None:
     plant = development_client.get("/api/v1/plants").json()["plants"][0]
-    source = BytesIO()
-    Image.new("RGB", (64, 64), "green").save(source, format="JPEG")
-    development_client.post(
-        f"/api/v1/plants/{plant['id']}/photo",
-        files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
-    )
 
-    response = development_client.post(
-        f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
-    )
+    response = request_diagnosis(development_client, plant["id"], diagnostic_photo())
 
     assert response.status_code == 503
     assert "Cloudflare Account ID" in response.json()["detail"]
@@ -295,14 +307,14 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         initial_usage = client.get("/api/v1/plant-doctor/usage")
         plant = client.get("/api/v1/plants").json()["plants"][1]
         initial_history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history")
-        source = BytesIO()
-        Image.new("RGB", (2400, 1600), "green").save(source, format="JPEG")
-        client.post(
-            f"/api/v1/plants/{plant['id']}/photo",
-            files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
-        )
+        current_photo = diagnostic_photo(size=(2400, 1600))
 
-        response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
+        response = request_diagnosis(client, plant["id"], current_photo)
+        cover_after_diagnosis = next(
+            item
+            for item in client.get("/api/v1/plants").json()["plants"]
+            if item["id"] == plant["id"]
+        )
         updated_usage = client.get("/api/v1/plant-doctor/usage")
         visit_id = response.json()["visit_id"]
         saved_history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history")
@@ -323,14 +335,15 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
             f"/api/v1/plants/{plant['id']}/doctor/history/{visit_id}",
             json={"outcome": "did_not_help"},
         )
-        second_response = client.post(
-            f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
+        second_response = request_diagnosis(
+            client, plant["id"], diagnostic_photo(color="darkgreen")
         )
 
     assert response.status_code == 200
     assert response.json()["neurons"] == 12.5
     assert response.json()["confidence"] == "medium"
     assert response.json()["visit_id"] is not None
+    assert cover_after_diagnosis["photo_updated_at"] is None
     assert len(doctor.calls) == 2
     sent_photo, context = doctor.calls[0]
     with Image.open(BytesIO(sent_photo)) as image:
@@ -381,13 +394,7 @@ def test_plant_doctor_provider_errors_are_actionable(
     )
     with TestClient(create_app(settings, plant_doctor_client=FailingPlantDoctor(kind))) as client:
         plant = client.get("/api/v1/plants").json()["plants"][0]
-        source = BytesIO()
-        Image.new("RGB", (64, 64), "green").save(source, format="JPEG")
-        client.post(
-            f"/api/v1/plants/{plant['id']}/photo",
-            files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
-        )
-        response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
+        response = request_diagnosis(client, plant["id"], diagnostic_photo())
 
     assert response.status_code == expected_status
     assert message in response.json()["detail"]

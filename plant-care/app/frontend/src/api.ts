@@ -54,7 +54,10 @@ async function jsonMutation<T>(path: string, body?: unknown, method = "POST"): P
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!response.ok) throw new ApiError(response.status, "The change could not be saved.");
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new ApiError(response.status, payload?.detail ?? "The change could not be saved.");
+  }
   return (await response.json()) as T;
 }
 
@@ -106,17 +109,19 @@ export async function deletePlantPhoto(plantId: string): Promise<void> {
   if (!response.ok) throw new ApiError(response.status, "The photo could not be deleted.");
 }
 
-export async function diagnosePlant(plantId: string): Promise<PlantDoctorResponse> {
+export async function diagnosePlant(plantId: string, photo: File): Promise<PlantDoctorResponse> {
+  const body = new FormData();
+  body.append("consent", "true");
+  body.append("photo", photo);
   const csrf = csrfToken();
   const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/doctor`), {
     method: "POST",
     credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     },
-    body: JSON.stringify({ consent: true }),
+    body,
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: string } | null;

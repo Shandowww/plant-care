@@ -39,7 +39,7 @@ const action = {
   completed_by: null,
 };
 
-function mockApi(actionFixture = action, plantFixture = plant) {
+function mockApi(actionFixture = action, plantFixture = plant, simulator = true, syncStatus = 200) {
   let currentPlant = { ...plantFixture };
   let doctorChecks = 0;
   let doctorHistory: Array<Record<string, unknown>> = [];
@@ -57,20 +57,28 @@ function mockApi(actionFixture = action, plantFixture = plant) {
     if (url.endsWith("/home-assistant/entities")) return new Response(JSON.stringify({ source: "simulator", areas: ["Bedroom", "Kitchen", "Living room"], entities: [
       { entity_id: "sensor.golden_pothos_soil_moisture", name: "Golden Pothos Soil moisture", device_class: "moisture", state: "18", unit: "%", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.golden_pothos_temperature", name: "Golden Pothos Temperature", device_class: "temperature", state: "24.9", unit: "°C", area_name: "Kitchen", device_id: "device-pothos" },
+      { entity_id: "sensor.kitchen_air_temperature", name: "Kitchen Air Temperature", device_class: "temperature", state: "24.2", unit: "°C", area_name: "Kitchen", device_id: "device-room" },
       { entity_id: "sensor.golden_pothos_battery", name: "Golden Pothos Battery", device_class: "battery", state: "67", unit: "%", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.golden_pothos_illuminance", name: "Golden Pothos Illuminance", device_class: "illuminance", state: "unavailable", unit: "lx", area_name: "Kitchen", device_id: "device-pothos" },
       { entity_id: "sensor.kitchen_motion_illuminance", name: "Kitchen Motion Illuminance", device_class: "illuminance", state: "465", unit: "lx", area_name: "Kitchen", device_id: "device-motion" },
     ] }), { status: 200 });
+    if (url.endsWith("/home-assistant/sync") && init?.method === "POST") {
+      return new Response(JSON.stringify({ plants_checked: 1, readings_added: 0, invalid_readings: 0, missing_entities: 0 }), { status: syncStatus });
+    }
     if (url.endsWith("/plants/plant-1/entity-mapping") && init?.method === "PATCH") {
-      return new Response(String(init.body), { status: 200, headers: { "Content-Type": "application/json" } });
+      const entityMapping = JSON.parse(String(init.body));
+      currentPlant = { ...currentPlant, entity_mapping: entityMapping };
+      return new Response(JSON.stringify(entityMapping), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (url.endsWith("/plants/plant-1") && init?.method === "PATCH") {
       currentPlant = { ...currentPlant, ...JSON.parse(String(init.body)) };
       return new Response(JSON.stringify(currentPlant), { status: 200 });
     }
-    if (url.endsWith("/plants/plant-1/photo") && init?.method === "POST") {
-      currentPlant = { ...currentPlant, photo_updated_at: "2026-09-09T18:00:00Z" };
-      return new Response(JSON.stringify(currentPlant), { status: 200 });
+    if (url.endsWith("/photo") && init?.method === "POST") {
+      const plantId = url.split("/").at(-2) ?? "plant-1";
+      const uploadedPlant = { ...(plantId === "plant-1" ? currentPlant : plant), id: plantId, photo_updated_at: "2026-09-09T18:00:00Z" };
+      if (plantId === "plant-1") currentPlant = uploadedPlant;
+      return new Response(JSON.stringify(uploadedPlant), { status: 200 });
     }
     if (url.endsWith("/plants/plant-1/photo") && init?.method === "DELETE") {
       currentPlant = { ...currentPlant, photo_updated_at: null };
@@ -127,9 +135,17 @@ function mockApi(actionFixture = action, plantFixture = plant) {
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.6.1", database: "ready", simulator: true, plant_doctor_configured: true }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.7.0", database: "ready", simulator, plant_doctor_configured: true }), { status: 200 });
     return new Response("", { status: 404 });
   });
+}
+
+function chooseDiagnosticPhoto() {
+  const photo = new File(["current diagnostic photo"], "diagnostic.jpg", { type: "image/jpeg" });
+  fireEvent.change(screen.getByLabelText(/Take or choose a photo/), {
+    target: { files: [photo] },
+  });
+  return photo;
 }
 
 describe("portal", () => {
@@ -160,6 +176,24 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("article", { name: "Golden Pothos" }));
     expect(screen.getByRole("dialog", { name: "Golden Pothos" })).toBeInTheDocument();
+  });
+
+  it("shows plant-specific tips, shuffles them, and expands the full guide", async () => {
+    mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    expect(screen.getByRole("heading", { name: "Tips for Golden Pothos" })).toBeInTheDocument();
+    expect(screen.getByText("Care guide for Golden pothos")).toBeInTheDocument();
+    expect(screen.getByText("Read the soil, not the calendar")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close plant details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Golden Pothos details" }));
+    expect(screen.getByText("Variegation follows the light")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Shuffle care tip for Golden Pothos" }));
+    expect(screen.queryByText("Variegation follows the light")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all tips (5)" }));
+    expect(screen.getByRole("button", { name: "Hide all tips" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByText("Read the soil, not the calendar").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Choose trailing or climbing").length).toBeGreaterThan(0);
   });
 
   it("shows the normal temperature range without opening plant details", async () => {
@@ -210,15 +244,16 @@ describe("portal", () => {
     );
   });
 
-  it("requires a current photo before Plant Doctor can run", async () => {
-    mockApi();
+  it("requires a separate diagnostic photo without replacing the cover", async () => {
+    mockApi(action, { ...plant, photo_updated_at: "2026-09-09T18:00:00Z" });
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
     fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
     expect(screen.getByRole("dialog", { name: "Check Golden Pothos" })).toBeInTheDocument();
-    expect(screen.getByText("A current photo is required")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open Edit plant" }));
-    expect(screen.getByRole("dialog", { name: "Edit Golden Pothos" })).toBeInTheDocument();
+    expect(screen.getByText("Choose a current diagnostic photo")).toBeInTheDocument();
+    expect(screen.getByText(/cover photo stays unchanged/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Take or choose a photo/)).not.toHaveAttribute("capture");
+    expect(screen.getByRole("button", { name: "Send for diagnosis" })).toBeDisabled();
   });
 
   it("runs Plant Doctor only after one-check consent and shows usage", async () => {
@@ -231,6 +266,7 @@ describe("portal", () => {
     expect(screen.getByText(/Free-plan requests stop at the limit/)).toBeInTheDocument();
     const send = screen.getByRole("button", { name: "Send for diagnosis" });
     expect(send).toBeDisabled();
+    chooseDiagnosticPhoto();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(send);
     await screen.findByText("The leaves look generally healthy.");
@@ -245,7 +281,7 @@ describe("portal", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Didn't help" })).toHaveAttribute("aria-pressed", "true"));
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/doctor",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ consent: true }) }),
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/doctor/recommendation",
@@ -269,6 +305,7 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
     fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    chooseDiagnosticPhoto();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Send for diagnosis" }));
     await screen.findByText("The leaves look generally healthy.");
@@ -281,17 +318,41 @@ describe("portal", () => {
   });
 
   it("maps Home Assistant sensor entities from plant details", async () => {
-    const fetchMock = mockApi();
+    const fetchMock = mockApi(action, { ...plant, entity_mapping: {
+      moisture_entity_id: "sensor.golden_pothos_soil_moisture",
+      temperature_entity_id: "sensor.golden_pothos_temperature",
+      battery_entity_id: "sensor.golden_pothos_battery",
+      illuminance_entity_id: "sensor.kitchen_motion_illuminance",
+    } });
     render(<App />);
     fireEvent.click(await screen.findByRole("article", { name: "Golden Pothos" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage sensor mapping" }));
     await screen.findByRole("dialog", { name: "Map sensors for Golden Pothos" });
-    fireEvent.change(screen.getByLabelText("Soil moisture"), { target: { value: "sensor.golden_pothos_soil_moisture" } });
+    fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "sensor.kitchen_air_temperature" } });
     fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
     await waitFor(() => expect(screen.getByText("Golden Pothos sensor mapping was updated.")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants/plant-1/entity-mapping",
-      expect.objectContaining({ method: "PATCH" }),
+      expect.objectContaining({ method: "PATCH", body: expect.stringContaining("sensor.kitchen_air_temperature") }),
+    );
+  });
+
+  it("keeps a saved sensor change when an immediate Home Assistant sync fails", async () => {
+    const fetchMock = mockApi(action, { ...plant, entity_mapping: {
+      moisture_entity_id: "sensor.golden_pothos_soil_moisture",
+      temperature_entity_id: "sensor.golden_pothos_temperature",
+      battery_entity_id: "sensor.golden_pothos_battery",
+      illuminance_entity_id: null,
+    } }, false, 502);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("article", { name: "Golden Pothos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage sensor mapping" }));
+    fireEvent.change(await screen.findByLabelText("Temperature"), { target: { value: "sensor.kitchen_air_temperature" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save mapping" }));
+    expect(await screen.findByText("Golden Pothos mapping was saved. Live readings will retry automatically.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1/entity-mapping",
+      expect.objectContaining({ method: "PATCH", body: expect.stringContaining("sensor.kitchen_air_temperature") }),
     );
   });
 
@@ -359,6 +420,8 @@ describe("portal", () => {
     expect(screen.getByLabelText("Battery")).toHaveValue("sensor.golden_pothos_battery");
     expect(screen.getByLabelText("Illuminance (any sensor)")).toHaveValue("sensor.kitchen_motion_illuminance");
     fireEvent.change(screen.getByLabelText("Friendly name"), { target: { value: "My Kitchen Pothos" } });
+    const cover = new File(["new cover"], "new-plant.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText(/Choose or take a cover photo/), { target: { files: [cover] } });
     fireEvent.click(screen.getByRole("button", { name: "Add connected plant" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "api/v1/plants",
@@ -366,6 +429,10 @@ describe("portal", () => {
         method: "POST",
         body: expect.stringContaining('"display_name":"My Kitchen Pothos"'),
       }),
+    ));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-2/photo",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     ));
   });
 

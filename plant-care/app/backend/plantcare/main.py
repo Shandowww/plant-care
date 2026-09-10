@@ -10,6 +10,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -69,7 +70,6 @@ from .schemas import (
     PlantDoctorActionRequest,
     PlantDoctorFeedbackRequest,
     PlantDoctorHistoryResponse,
-    PlantDoctorRequest,
     PlantDoctorResponse,
     PlantDoctorUsageResponse,
     PlantDoctorVisitSummary,
@@ -603,20 +603,19 @@ def create_app(
     )
     async def diagnose_plant(
         plant_id: str,
-        payload: PlantDoctorRequest,
+        photo: Annotated[UploadFile, File()],
+        consent: Annotated[bool, Form()],
         identity: CurrentIdentity,
         session: Session,
     ) -> PlantDoctorResponse:
-        del payload
+        if not consent:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Explicit consent is required for each Plant Doctor check.",
+            )
         plant = await session.get(Plant, plant_id)
         if plant is None or not plant.active:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
-        target = photo_path(app_settings.data_dir, plant.id)
-        if plant.photo_updated_at is None or not target.is_file():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Add a current plant photo before running Plant Doctor.",
-            )
         if plant_doctor is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -626,8 +625,11 @@ def create_app(
                 ),
             )
         try:
-            stored_photo = await asyncio.to_thread(target.read_bytes)
-            analysis_photo = await asyncio.to_thread(prepare_photo_for_analysis, stored_photo)
+            try:
+                uploaded = await photo.read(MAX_UPLOAD_BYTES + 1)
+            finally:
+                await photo.close()
+            analysis_photo = await asyncio.to_thread(prepare_photo_for_analysis, uploaded)
             previous_visits = list(
                 (
                     await session.scalars(
@@ -663,8 +665,8 @@ def create_app(
             )
         except InvalidPhotoError as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="The stored plant photo could not be prepared for analysis.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
             ) from exc
         except PlantDoctorProviderError as exc:
             logger.warning("plant_doctor_request_failed", provider="cloudflare", reason=exc.kind)
