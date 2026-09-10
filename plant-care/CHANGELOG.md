@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+- Save successful Plant Doctor assessments locally as compact per-plant patient
+  history, including the sensor snapshot, queue decision, and reported outcome.
+- Let users explicitly decline a recommendation or later mark an accepted one as
+  helped, did not help, or uncertain.
+- Give Cloudflare only the five most recent text summaries and outcomes on a new
+  check, never previous photos, and ask it not to repeat failed advice without
+  current supporting evidence.
+- Distinguish daily quota exhaustion, temporary capacity, rate limiting, token
+  rejection, model/account configuration, and general provider outages with
+  actionable messages.
+
 ## 0.5.2
 
 - Let iPhone and iPad users choose between their photo library, camera, and

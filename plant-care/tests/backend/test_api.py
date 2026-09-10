@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from plantcare.config import Settings
 from plantcare.main import create_app
-from plantcare.plant_doctor import PlantDoctorContext
+from plantcare.plant_doctor import PlantDoctorContext, PlantDoctorProviderError
 from plantcare.schemas import PlantDoctorResponse
 
 
@@ -29,6 +29,15 @@ class StubPlantDoctor:
         )
 
 
+class FailingPlantDoctor:
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+
+    async def analyze(self, photo: bytes, context: PlantDoctorContext) -> PlantDoctorResponse:
+        del photo, context
+        raise PlantDoctorProviderError(self.kind)  # type: ignore[arg-type]
+
+
 @pytest.fixture
 def development_client(tmp_path: Path) -> TestClient:
     settings = Settings(
@@ -47,7 +56,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.5.2",
+        "version": "0.6.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -285,6 +294,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
     with TestClient(create_app(settings, plant_doctor_client=doctor)) as client:
         initial_usage = client.get("/api/v1/plant-doctor/usage")
         plant = client.get("/api/v1/plants").json()["plants"][1]
+        initial_history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history")
         source = BytesIO()
         Image.new("RGB", (2400, 1600), "green").save(source, format="JPEG")
         client.post(
@@ -294,10 +304,12 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
 
         response = client.post(f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True})
         updated_usage = client.get("/api/v1/plant-doctor/usage")
+        visit_id = response.json()["visit_id"]
+        saved_history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history")
         recommendation = "Check the underside of the leaves before changing care."
         created_action = client.post(
             f"/api/v1/plants/{plant['id']}/doctor/recommendation",
-            json={"recommendation": recommendation},
+            json={"recommendation": recommendation, "visit_id": visit_id},
         )
         repeated_action = client.post(
             f"/api/v1/plants/{plant['id']}/doctor/recommendation",
@@ -307,25 +319,80 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
             f"/api/v1/plants/{plant['id']}/doctor/recommendation",
             json={"recommendation": "   "},
         )
+        feedback = client.patch(
+            f"/api/v1/plants/{plant['id']}/doctor/history/{visit_id}",
+            json={"outcome": "did_not_help"},
+        )
+        second_response = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
+        )
 
     assert response.status_code == 200
     assert response.json()["neurons"] == 12.5
     assert response.json()["confidence"] == "medium"
-    assert len(doctor.calls) == 1
+    assert response.json()["visit_id"] is not None
+    assert len(doctor.calls) == 2
     sent_photo, context = doctor.calls[0]
     with Image.open(BytesIO(sent_photo)) as image:
         assert max(image.size) == 1280
     assert context.display_name == plant["display_name"]
     assert context.moisture == plant["moisture"]
+    assert context.history == ()
+    assert doctor.calls[1][1].history[0].decision == "accepted"
+    assert doctor.calls[1][1].history[0].outcome == "did_not_help"
     assert initial_usage.json()["checks_today"] == 0
     assert updated_usage.json()["checks_today"] == 1
     assert updated_usage.json()["daily_free_neuron_limit"] == 10_000
     assert updated_usage.json()["estimated_neurons_per_check"] == "about 10–50"
+    assert initial_history.json() == {"visits": []}
+    assert saved_history.json()["visits"][0]["decision"] == "pending"
+    assert saved_history.json()["visits"][0]["sensor_snapshot"]["moisture"] == plant["moisture"]
     assert created_action.status_code == 200
     assert created_action.json()["type"] == "ai_recommendation"
     assert created_action.json()["recommendation"] == recommendation
     assert repeated_action.json()["id"] == created_action.json()["id"]
     assert empty_action.status_code == 422
+    assert feedback.status_code == 200
+    assert feedback.json()["decision"] == "accepted"
+    assert feedback.json()["outcome"] == "did_not_help"
+    assert second_response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected_status", "message"),
+    [
+        ("quota", 429, "daily AI allowance"),
+        ("credentials", 401, "expired, revoked"),
+        ("configuration", 403, "model agreement"),
+        ("capacity", 503, "out of capacity"),
+        ("rate_limit", 429, "too many requests"),
+        ("unavailable", 503, "could not be reached"),
+    ],
+)
+def test_plant_doctor_provider_errors_are_actionable(
+    tmp_path: Path, kind: str, expected_status: int, message: str
+) -> None:
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / f'{kind}.db'}",
+        static_dir=tmp_path / "static",
+    )
+    with TestClient(create_app(settings, plant_doctor_client=FailingPlantDoctor(kind))) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        source = BytesIO()
+        Image.new("RGB", (64, 64), "green").save(source, format="JPEG")
+        client.post(
+            f"/api/v1/plants/{plant['id']}/photo",
+            files={"photo": ("plant.jpg", source.getvalue(), "image/jpeg")},
+        )
+        response = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor", json={"consent": True}
+        )
+
+    assert response.status_code == expected_status
+    assert message in response.json()["detail"]
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(

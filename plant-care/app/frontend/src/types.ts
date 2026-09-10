@@ -107,6 +107,7 @@ export interface HealthResponse {
 }
 
 export interface PlantDoctorResponse {
+  visit_id: string | null;
   summary: string;
   observations: string[];
   possible_issues: string[];
@@ -124,4 +125,28 @@ export interface PlantDoctorUsageResponse {
   resets_at: string;
   daily_free_neuron_limit: number;
   estimated_neurons_per_check: string;
+}
+
+export type PlantDoctorDecision = "pending" | "accepted" | "declined";
+export type PlantDoctorOutcome = "not_tried" | "helped" | "did_not_help" | "not_sure";
+
+export interface PlantDoctorVisit {
+  id: string;
+  action_id: string | null;
+  summary: string;
+  observations: string[];
+  possible_issues: string[];
+  next_steps: string[];
+  sensor_snapshot: Record<string, number | null>;
+  confidence: "low" | "medium" | "high";
+  provider: string;
+  model: string;
+  neurons: number | null;
+  decision: PlantDoctorDecision;
+  outcome: PlantDoctorOutcome;
+  created_at: string;
+}
+
+export interface PlantDoctorHistoryResponse {
+  visits: PlantDoctorVisit[];
 }

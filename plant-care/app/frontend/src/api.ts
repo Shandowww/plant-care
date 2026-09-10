@@ -1,4 +1,4 @@
-import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantDoctorResponse, PlantDoctorUsageResponse, PlantEntityMapping, PlantResponse } from "./types";
+import type { ActionHistoryResponse, ActionResponse, CareAction, HealthResponse, HomeAssistantEntityResponse, Plant, PlantCreate, PlantDoctorDecision, PlantDoctorHistoryResponse, PlantDoctorOutcome, PlantDoctorResponse, PlantDoctorUsageResponse, PlantDoctorVisit, PlantEntityMapping, PlantResponse } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -135,10 +135,32 @@ export async function getPlantDoctorUsage(signal?: AbortSignal): Promise<PlantDo
   return (await response.json()) as PlantDoctorUsageResponse;
 }
 
-export function createDoctorRecommendation(plantId: string, recommendation: string): Promise<CareAction> {
+export function createDoctorRecommendation(plantId: string, recommendation: string, visitId: string | null): Promise<CareAction> {
   return jsonMutation<CareAction>(
     `/api/v1/plants/${plantId}/doctor/recommendation`,
-    { recommendation },
+    { recommendation, visit_id: visitId },
+  );
+}
+
+export async function getPlantDoctorHistory(plantId: string, signal?: AbortSignal): Promise<PlantDoctorHistoryResponse> {
+  const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/doctor/history`), {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) throw new ApiError(response.status, "Plant Doctor history could not be loaded.");
+  return (await response.json()) as PlantDoctorHistoryResponse;
+}
+
+export function updatePlantDoctorFeedback(
+  plantId: string,
+  visitId: string,
+  feedback: { decision?: PlantDoctorDecision; outcome?: PlantDoctorOutcome },
+): Promise<PlantDoctorVisit> {
+  return jsonMutation<PlantDoctorVisit>(
+    `/api/v1/plants/${plantId}/doctor/history/${visitId}`,
+    feedback,
+    "PATCH",
   );
 }
 

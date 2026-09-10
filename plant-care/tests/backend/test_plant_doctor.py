@@ -6,6 +6,7 @@ from plantcare.plant_doctor import (
     MODEL_ID,
     CloudflarePlantDoctor,
     PlantDoctorContext,
+    PlantDoctorHistoryContext,
     PlantDoctorProviderError,
 )
 
@@ -75,6 +76,67 @@ async def test_cloudflare_quota_error_is_normalized() -> None:
 
     with pytest.raises(PlantDoctorProviderError, match="quota"):
         await doctor.analyze(b"jpeg", context())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "error_code", "expected_kind"),
+    [
+        (429, 3040, "capacity"),
+        (429, 9999, "rate_limit"),
+        (403, 5016, "configuration"),
+        (401, 9109, "credentials"),
+    ],
+)
+async def test_cloudflare_provider_errors_remain_distinguishable(
+    status_code: int, error_code: int, expected_kind: str
+) -> None:
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            status_code,
+            json={"success": False, "errors": [{"code": error_code}]},
+        )
+
+    doctor = CloudflarePlantDoctor(
+        "account-id", "private-token", transport=httpx2.MockTransport(handler)
+    )
+
+    with pytest.raises(PlantDoctorProviderError, match=expected_kind):
+        await doctor.analyze(b"jpeg", context())
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_prompt_includes_compact_outcome_history() -> None:
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        body = json.loads(request.content)
+        prompt = body["messages"][1]["content"]
+        assert "did_not_help" in prompt
+        assert "Avoid repeating advice" in prompt
+        return httpx2.Response(
+            200,
+            json={"success": True, "result": {"response": "Inspect current growth."}},
+        )
+
+    original = context()
+    with_history = PlantDoctorContext(
+        **{
+            **original.__dict__,
+            "history": (
+                PlantDoctorHistoryContext(
+                    checked_at="2026-09-09T10:00:00+00:00",
+                    summary="Possible overwatering.",
+                    recommendation="Reduce watering.",
+                    decision="accepted",
+                    outcome="did_not_help",
+                ),
+            ),
+        }
+    )
+    doctor = CloudflarePlantDoctor(
+        "account-id", "private-token", transport=httpx2.MockTransport(handler)
+    )
+
+    await doctor.analyze(b"jpeg", with_history)
 
 
 @pytest.mark.asyncio

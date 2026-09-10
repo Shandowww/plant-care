@@ -113,6 +113,7 @@ class PlantDoctorRequest(BaseModel):
 
 
 class PlantDoctorResponse(BaseModel):
+    visit_id: str | None = None
     summary: str
     observations: list[str]
     possible_issues: list[str]
@@ -134,6 +135,40 @@ class PlantDoctorUsageResponse(BaseModel):
 
 class PlantDoctorActionRequest(BaseModel):
     recommendation: str = Field(min_length=1, max_length=1_000)
+    visit_id: str | None = None
+
+
+class PlantDoctorVisitSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    action_id: str | None
+    summary: str
+    observations: list[str]
+    possible_issues: list[str]
+    next_steps: list[str]
+    sensor_snapshot: dict[str, float | None]
+    confidence: Literal["low", "medium", "high"]
+    provider: str
+    model: str
+    neurons: float | None
+    decision: Literal["pending", "accepted", "declined"]
+    outcome: Literal["not_tried", "helped", "did_not_help", "not_sure"]
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def assume_utc_for_created_at(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+class PlantDoctorHistoryResponse(BaseModel):
+    visits: list[PlantDoctorVisitSummary]
+
+
+class PlantDoctorFeedbackRequest(BaseModel):
+    decision: Literal["pending", "accepted", "declined"] | None = None
+    outcome: Literal["not_tried", "helped", "did_not_help", "not_sure"] | None = None
 
 
 class PlantCreateRequest(BaseModel):

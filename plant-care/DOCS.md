@@ -82,19 +82,32 @@ there is no shared PlantCare AI account.
 For each check, PlantCare requires a current private photo and fresh consent.
 It sends Cloudflare a temporary metadata-free copy resized to at most 1280 pixels,
 the plant identity, location/exposure, and the latest moisture, temperature, and
-illuminance values. It does not send Home Assistant credentials or entity IDs.
-The assessment and neuron usage are displayed but not saved. After reviewing an
-assessment, a user may explicitly add its safe next checks to the shared care
-queue. The resulting task is labelled **AI recommendation**, can be snoozed or
-completed manually, and appears in action history. AI output never changes care
-or controls devices by itself. Cloudflare's allowance and data policies remain
-subject to the owner's Cloudflare plan and terms.
+illuminance values. On later checks it also sends at most five recent text-only
+assessment summaries, recommendations, queue decisions, and outcomes. Previous
+photos, Home Assistant credentials, and entity IDs are not sent.
+
+Successful assessments and their sensor snapshots are saved locally under
+PlantCare's app data and included in Home Assistant backups. A user can decline
+a recommendation or add it to the shared care queue, where it is labelled **AI
+recommendation** and remains manually completable. On a later visit, an accepted
+recommendation can be marked **Helped**, **Didn't help**, or **Not sure**. That
+feedback helps the next assessment avoid repeating unsuccessful advice without
+new evidence. AI output never changes care or controls devices by itself.
 
 The consent screen also shows how many successful Plant Doctor checks this
 PlantCare installation has completed since 00:00 UTC. It includes a reminder of
 the 10,000-neuron daily free allocation and an approximate 10–50 neurons per
 check. This is a local check count, not Cloudflare account-wide usage; activity
 from other applications is visible only in the Cloudflare dashboard.
+
+On Cloudflare's Workers Free plan, requests stop with an error after the daily
+allocation is exhausted and resume after the 00:00 UTC reset; they are not
+silently slowed or charged. On Workers Paid, usage beyond the free allocation
+can continue at Cloudflare's published rate. PlantCare identifies Cloudflare's
+documented quota, capacity, rate-limit, authentication, model-access, and general
+availability failures and displays a specific next step. A rejected token may
+be expired, revoked, or missing Workers AI permission; PlantCare never logs or
+returns the token itself.
 
 ## Sensor mapping
 

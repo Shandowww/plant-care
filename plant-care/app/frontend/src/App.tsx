@@ -34,6 +34,7 @@ import {
   getActions,
   getHealth,
   getHomeAssistantEntities,
+  getPlantDoctorHistory,
   getPlantDoctorUsage,
   getPlants,
   login,
@@ -42,6 +43,7 @@ import {
   syncHomeAssistant,
   undoAction,
   updatePlant,
+  updatePlantDoctorFeedback,
   updatePlantEntityMapping,
   uploadPlantPhoto,
 } from "./api";
@@ -55,7 +57,9 @@ import type {
   Plant,
   PlantCreate,
   PlantDoctorResponse,
+  PlantDoctorOutcome,
   PlantDoctorUsageResponse,
+  PlantDoctorVisit,
   PlantEntityMapping,
   PlantResponse,
   PlantState,
@@ -296,8 +300,8 @@ function App() {
     setToast("Confirmed moisture recovery recorded; the watering action closed automatically.");
   }
 
-  async function handleDoctorRecommendation(plant: Plant, recommendation: string) {
-    await createDoctorRecommendation(plant.id, recommendation);
+  async function handleDoctorRecommendation(plant: Plant, recommendation: string, visitId: string | null) {
+    await createDoctorRecommendation(plant.id, recommendation, visitId);
     await Promise.all([refreshPlants(), refreshActions(), refreshActionHistory()]);
     setToast(`AI recommendation added to ${plant.display_name}'s care queue.`);
   }
@@ -519,44 +523,314 @@ function entityHasReading(entity: HomeAssistantEntity): boolean {
   return !["", "unknown", "unavailable", "none", "null"].includes(entity.state.trim().toLowerCase());
 }
 
-function DoctorDialog({ plant, onClose, onEdit, onAddAction }: { plant: Plant; onClose: () => void; onEdit: () => void; onAddAction: (plant: Plant, recommendation: string) => Promise<void> }) {
+function DoctorDialog({
+  plant,
+  onClose,
+  onEdit,
+  onAddAction,
+}: {
+  plant: Plant;
+  onClose: () => void;
+  onEdit: () => void;
+  onAddAction: (plant: Plant, recommendation: string, visitId: string | null) => Promise<void>;
+}) {
   const [consent, setConsent] = useState(false);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<PlantDoctorResponse | null>(null);
   const [usage, setUsage] = useState<PlantDoctorUsageResponse | null>(null);
+  const [history, setHistory] = useState<PlantDoctorVisit[]>([]);
   const [addingAction, setAddingAction] = useState(false);
   const [actionAdded, setActionAdded] = useState(false);
+  const [actionDeclined, setActionDeclined] = useState(false);
+  const [savingFeedback, setSavingFeedback] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const photo = plantPhotoUrl(plant);
+
   useEffect(() => {
     const controller = new AbortController();
     void getPlantDoctorUsage(controller.signal).then(setUsage).catch(() => undefined);
+    void getPlantDoctorHistory(plant.id, controller.signal)
+      .then((response) => setHistory(response.visits))
+      .catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [plant.id]);
+
+  async function refreshDoctorData() {
+    const [nextUsage, nextHistory] = await Promise.all([
+      getPlantDoctorUsage(),
+      getPlantDoctorHistory(plant.id),
+    ]);
+    setUsage(nextUsage);
+    setHistory(nextHistory.visits);
+  }
+
   async function check() {
     if (!consent || !photo) return;
-    setChecking(true); setMessage(null);
+    setChecking(true);
+    setMessage(null);
     try {
       setResult(await diagnosePlant(plant.id));
-      setUsage(await getPlantDoctorUsage());
+      setActionAdded(false);
+      setActionDeclined(false);
+      await refreshDoctorData();
+    } catch (reason) {
+      setMessage(
+        reason instanceof Error ? reason.message : "Plant Doctor could not complete the check.",
+      );
+    } finally {
+      setChecking(false);
     }
-    catch (reason) { setMessage(reason instanceof Error ? reason.message : "Plant Doctor could not complete the check."); }
-    finally { setChecking(false); }
   }
+
   async function addAction() {
-    if (!result || actionAdded) return;
-    const recommendation = result.next_steps.join(" · ") || "Inspect the plant directly and confirm the visual assessment.";
-    setAddingAction(true); setMessage(null);
-    try { await onAddAction(plant, recommendation); setActionAdded(true); }
-    catch (reason) { setMessage(reason instanceof Error ? reason.message : "The AI recommendation could not be added."); }
-    finally { setAddingAction(false); }
+    if (!result || actionAdded || actionDeclined) return;
+    const recommendation =
+      result.next_steps.join(" · ") ||
+      "Inspect the plant directly and confirm the visual assessment.";
+    setAddingAction(true);
+    setMessage(null);
+    try {
+      await onAddAction(plant, recommendation, result.visit_id);
+      setActionAdded(true);
+      await refreshDoctorData();
+    } catch (reason) {
+      setMessage(
+        reason instanceof Error ? reason.message : "The AI recommendation could not be added.",
+      );
+    } finally {
+      setAddingAction(false);
+    }
   }
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}><section className="dialog doctor-dialog" role="dialog" aria-modal="true" aria-labelledby="doctor-dialog-title"><button className="dialog__close" type="button" aria-label="Close plant doctor" onClick={onClose}><X /></button><p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p><h2 id="doctor-dialog-title">Check {plant.display_name}</h2>{!photo ? <div className="doctor-empty"><Camera /><h3>A current photo is required</h3><p>Add or replace the photo in Edit plant, then return here for a visual check.</p><button className="secondary-button" type="button" onClick={onEdit}>Open Edit plant</button></div> : result ? <DoctorResult result={result} photo={photo} plantName={plant.display_name} /> : <><p className="dialog-subtitle">The stored photo and the latest moisture, temperature, and light values will be sent to Cloudflare for this check only.</p><img className="doctor-photo" src={photo} alt={`Photo to diagnose for ${plant.display_name}`} /><DoctorUsage usage={usage} /><label className="consent-row"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />I agree to send this photo and limited plant context to Cloudflare Workers AI for one assessment.</label><p className="doctor-note">AI guidance will not change care automatically. After reviewing the result, you can choose to add its safe next checks to the care queue.</p></>}{message && <p className="inline-error" role="alert">{message}</p>}<div className="dialog__footer"><button className="secondary-button" type="button" onClick={onClose}>Close</button>{photo && !result && <button className="primary-button" type="button" disabled={!consent || checking} onClick={check}>{checking ? "Checking…" : "Send for diagnosis"}</button>}{result && <><button className="secondary-button" type="button" onClick={() => { setResult(null); setConsent(false); setActionAdded(false); }}>Check again</button><button className="primary-button" type="button" disabled={addingAction || actionAdded} onClick={addAction}>{actionAdded ? "Added to care queue" : addingAction ? "Adding…" : "Add AI recommendation"}</button></>}</div></section></div>;
+
+  async function declineAction() {
+    if (!result?.visit_id || actionAdded || actionDeclined) return;
+    setSavingFeedback(result.visit_id);
+    setMessage(null);
+    try {
+      await updatePlantDoctorFeedback(plant.id, result.visit_id, { decision: "declined" });
+      setActionDeclined(true);
+      await refreshDoctorData();
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "The decision could not be saved.");
+    } finally {
+      setSavingFeedback(null);
+    }
+  }
+
+  async function recordOutcome(visit: PlantDoctorVisit, outcome: PlantDoctorOutcome) {
+    setSavingFeedback(visit.id);
+    setMessage(null);
+    try {
+      const updated = await updatePlantDoctorFeedback(plant.id, visit.id, { outcome });
+      setHistory((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "The outcome could not be saved.");
+    } finally {
+      setSavingFeedback(null);
+    }
+  }
+
+  const earlierHistory = result?.visit_id
+    ? history.filter((visit) => visit.id !== result.visit_id)
+    : history;
+
+  return (
+    <div
+      className="dialog-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <section
+        className="dialog doctor-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="doctor-dialog-title"
+      >
+        <button
+          className="dialog__close"
+          type="button"
+          aria-label="Close plant doctor"
+          onClick={onClose}
+        >
+          <X />
+        </button>
+        <p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p>
+        <h2 id="doctor-dialog-title">Check {plant.display_name}</h2>
+        {!photo ? (
+          <div className="doctor-empty">
+            <Camera />
+            <h3>A current photo is required</h3>
+            <p>Add or replace the photo in Edit plant, then return here for a visual check.</p>
+            <button className="secondary-button" type="button" onClick={onEdit}>
+              Open Edit plant
+            </button>
+          </div>
+        ) : result ? (
+          <DoctorResult result={result} photo={photo} plantName={plant.display_name} />
+        ) : (
+          <>
+            <p className="dialog-subtitle">
+              The current photo, latest sensor values, and up to five recent Doctor summaries,
+              recommendations, decisions, and outcomes will be sent to Cloudflare for this check.
+              Previous photos are not sent.
+            </p>
+            <img
+              className="doctor-photo"
+              src={photo}
+              alt={`Photo to diagnose for ${plant.display_name}`}
+            />
+            <DoctorUsage usage={usage} />
+            <label className="consent-row">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+              />
+              I agree to send this photo and limited plant context to Cloudflare Workers AI for
+              one assessment.
+            </label>
+            <p className="doctor-note">
+              Results are saved locally as patient history. Nothing changes automatically; you
+              decide whether to add the recommendation to the care queue and whether it helped.
+            </p>
+          </>
+        )}
+        {message && (
+          <p className="inline-error" role="alert">
+            {message}
+          </p>
+        )}
+        {earlierHistory.length > 0 && (
+          <DoctorHistory
+            visits={earlierHistory}
+            savingVisitId={savingFeedback}
+            onOutcome={recordOutcome}
+          />
+        )}
+        <div className="dialog__footer">
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Close
+          </button>
+          {photo && !result && (
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!consent || checking}
+              onClick={check}
+            >
+              {checking ? "Checking…" : "Send for diagnosis"}
+            </button>
+          )}
+          {result && (
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setResult(null);
+                  setConsent(false);
+                  setActionAdded(false);
+                  setActionDeclined(false);
+                }}
+              >
+                Check again
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={!result.visit_id || actionAdded || actionDeclined || savingFeedback !== null}
+                onClick={declineAction}
+              >
+                {actionDeclined ? "Not added" : "Don't add"}
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={addingAction || actionAdded || actionDeclined}
+                onClick={addAction}
+              >
+                {actionAdded
+                  ? "Added to care queue"
+                  : addingAction
+                    ? "Adding…"
+                    : "Add AI recommendation"}
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
 
+function DoctorHistory({
+  visits,
+  savingVisitId,
+  onOutcome,
+}: {
+  visits: PlantDoctorVisit[];
+  savingVisitId: string | null;
+  onOutcome: (visit: PlantDoctorVisit, outcome: PlantDoctorOutcome) => Promise<void>;
+}) {
+  const outcomeLabels: Record<PlantDoctorOutcome, string> = {
+    not_tried: "Not tried",
+    helped: "Helped",
+    did_not_help: "Didn't help",
+    not_sure: "Not sure",
+  };
+  return (
+    <section className="doctor-history" aria-labelledby="doctor-history-title">
+      <div className="doctor-history__heading">
+        <div>
+          <h3 id="doctor-history-title">Patient history</h3>
+          <p>Stored locally; only the five most recent entries inform the next check.</p>
+        </div>
+        <span>{visits.length}</span>
+      </div>
+      <div className="doctor-history__list">
+        {visits.map((visit) => (
+          <article key={visit.id}>
+            <div className="doctor-history__meta">
+              <time dateTime={visit.created_at}>{formatDateTime(visit.created_at)}</time>
+              <span className={`doctor-decision doctor-decision--${visit.decision}`}>
+                {visit.decision === "accepted"
+                  ? "Added to queue"
+                  : visit.decision === "declined"
+                    ? "Not added"
+                    : "Awaiting decision"}
+              </span>
+            </div>
+            <strong>{visit.summary}</strong>
+            {visit.next_steps.length > 0 && <p>{visit.next_steps.join(" · ")}</p>}
+            {visit.decision === "accepted" && (
+              <div className="doctor-outcome" aria-label="Recommendation outcome">
+                <span>Did it help?</span>
+                {(["helped", "did_not_help", "not_sure"] as PlantDoctorOutcome[]).map(
+                  (outcome) => (
+                    <button
+                      type="button"
+                      key={outcome}
+                      aria-pressed={visit.outcome === outcome}
+                      disabled={savingVisitId === visit.id}
+                      onClick={() => void onOutcome(visit, outcome)}
+                    >
+                      {outcomeLabels[outcome]}
+                    </button>
+                  ),
+                )}
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
 function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
   if (!usage) return <div className="doctor-usage doctor-usage--loading">Loading today's usage…</div>;
-  return <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder"><strong>{usage.checks_today} completed {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC</strong><span>Estimated {usage.estimated_neurons_per_check} neurons per check · {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day</span><small>Count includes successful checks made by this PlantCare installation.</small></aside>;
+  return <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder"><strong>{usage.checks_today} completed {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC</strong><span>Estimated {usage.estimated_neurons_per_check} neurons per check · {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day</span><small>Free-plan requests stop at the limit; Workers Paid may bill for overage. This local count includes successful PlantCare checks only.</small></aside>;
 }
 
 function DoctorResult({ result, photo, plantName }: { result: PlantDoctorResponse; photo: string; plantName: string }) {

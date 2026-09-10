@@ -16,6 +16,15 @@ DISCLAIMER = (
 
 
 @dataclass(frozen=True)
+class PlantDoctorHistoryContext:
+    checked_at: str
+    summary: str
+    recommendation: str
+    decision: str
+    outcome: str
+
+
+@dataclass(frozen=True)
 class PlantDoctorContext:
     display_name: str
     common_name: str
@@ -25,6 +34,7 @@ class PlantDoctorContext:
     moisture: float | None
     temperature: float | None
     illuminance: float | None
+    history: tuple[PlantDoctorHistoryContext, ...] = ()
 
 
 class PlantDoctorSource(Protocol):
@@ -32,7 +42,12 @@ class PlantDoctorSource(Protocol):
 
 
 class PlantDoctorProviderError(RuntimeError):
-    def __init__(self, kind: Literal["credentials", "quota", "unavailable"]) -> None:
+    def __init__(
+        self,
+        kind: Literal[
+            "credentials", "quota", "capacity", "rate_limit", "configuration", "unavailable"
+        ],
+    ) -> None:
         super().__init__(kind)
         self.kind = kind
 
@@ -80,19 +95,27 @@ class CloudflarePlantDoctor:
         except (httpx2.TimeoutException, httpx2.NetworkError) as exc:
             raise PlantDoctorProviderError("unavailable") from exc
 
-        if response.status_code in {401, 403}:
-            raise PlantDoctorProviderError("credentials")
-        if response.status_code == 429:
-            raise PlantDoctorProviderError("quota")
         try:
             payload = response.json()
         except ValueError as exc:
+            if response.status_code in {401, 403}:
+                raise PlantDoctorProviderError("credentials") from exc
+            if response.status_code == 429:
+                raise PlantDoctorProviderError("rate_limit") from exc
             raise PlantDoctorProviderError("unavailable") from exc
         if not response.is_success or not isinstance(payload, dict) or not payload.get("success"):
             if _has_error_code(payload, 3036):
                 raise PlantDoctorProviderError("quota")
+            if _has_error_code(payload, 3040):
+                raise PlantDoctorProviderError("capacity")
+            if any(_has_error_code(payload, code) for code in (3023, 5016, 5018, 5035, 3041)):
+                raise PlantDoctorProviderError("configuration")
             if _has_error_code(payload, 10000) or _has_error_code(payload, 9109):
                 raise PlantDoctorProviderError("credentials")
+            if response.status_code in {401, 403}:
+                raise PlantDoctorProviderError("credentials")
+            if response.status_code == 429:
+                raise PlantDoctorProviderError("rate_limit")
             raise PlantDoctorProviderError("unavailable")
 
         result = payload.get("result")
@@ -111,6 +134,26 @@ def _prompt(context: PlantDoctorContext) -> str:
         "temperature_celsius": context.temperature,
         "illuminance_lux": context.illuminance,
     }
+    history_context = [
+        {
+            "checked_at": item.checked_at,
+            "summary": item.summary,
+            "recommendation": item.recommendation,
+            "decision": item.decision,
+            "outcome": item.outcome,
+        }
+        for item in context.history
+    ]
+    history_instruction = (
+        "No previous Plant Doctor assessments are available."
+        if not history_context
+        else (
+            "Recent local assessment history is included below. Assess the current photo "
+            "independently. Avoid repeating advice marked did_not_help unless current evidence "
+            "supports retrying it, and explain why if you do.\n"
+            f"Recent history: {json.dumps(history_context, separators=(',', ':'))}."
+        )
+    )
     return (
         "Review the attached current photo of this plant for visible stress, damage, pests, "
         "or care concerns. Distinguish direct observations from possibilities and suggest safe "
@@ -118,7 +161,8 @@ def _prompt(context: PlantDoctorContext) -> str:
         f"Plant: {context.display_name}; common name: {context.common_name}; "
         f"scientific name: {context.scientific_name or 'unknown'}; location: {context.location}; "
         f"exposure: {context.environment_type}.\n"
-        f"Latest optional sensor context: {json.dumps(sensor_context, separators=(',', ':'))}."
+        f"Latest optional sensor context: {json.dumps(sensor_context, separators=(',', ':'))}.\n"
+        f"{history_instruction}"
     )
 
 

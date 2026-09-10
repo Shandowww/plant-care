@@ -139,6 +139,32 @@ class CareAction(Base):
     plant: Mapped[Plant] = relationship(back_populates="actions")
 
 
+class PlantDoctorVisit(Base):
+    __tablename__ = "plant_doctor_visits"
+    __table_args__ = (Index("ix_plant_doctor_visits_plant_created", "plant_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    plant_id: Mapped[str] = mapped_column(ForeignKey("plants.id", ondelete="CASCADE"), index=True)
+    action_id: Mapped[str | None] = mapped_column(
+        ForeignKey("care_actions.id", ondelete="SET NULL"), nullable=True
+    )
+    summary: Mapped[str] = mapped_column(Text)
+    observations: Mapped[Any] = mapped_column(JSON)
+    possible_issues: Mapped[Any] = mapped_column(JSON)
+    next_steps: Mapped[Any] = mapped_column(JSON)
+    sensor_snapshot: Mapped[Any] = mapped_column(JSON)
+    confidence: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(120))
+    model: Mapped[str] = mapped_column(String(255))
+    neurons: Mapped[float | None] = mapped_column(Float, nullable=True)
+    decision: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    outcome: Mapped[str] = mapped_column(String(20), default="not_tried", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
 

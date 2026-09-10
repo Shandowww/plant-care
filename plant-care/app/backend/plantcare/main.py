@@ -34,6 +34,7 @@ from .models import (
     AuditEvent,
     CareAction,
     Plant,
+    PlantDoctorVisit,
     PlantEntityMapping,
     Reading,
 )
@@ -48,6 +49,7 @@ from .photos import (
 from .plant_doctor import (
     CloudflarePlantDoctor,
     PlantDoctorContext,
+    PlantDoctorHistoryContext,
     PlantDoctorProviderError,
     PlantDoctorSource,
 )
@@ -65,9 +67,12 @@ from .schemas import (
     PasswordRequest,
     PlantCreateRequest,
     PlantDoctorActionRequest,
+    PlantDoctorFeedbackRequest,
+    PlantDoctorHistoryResponse,
     PlantDoctorRequest,
     PlantDoctorResponse,
     PlantDoctorUsageResponse,
+    PlantDoctorVisitSummary,
     PlantEntityMappingSummary,
     PlantEntityMappingUpdate,
     PlantListResponse,
@@ -623,6 +628,16 @@ def create_app(
         try:
             stored_photo = await asyncio.to_thread(target.read_bytes)
             analysis_photo = await asyncio.to_thread(prepare_photo_for_analysis, stored_photo)
+            previous_visits = list(
+                (
+                    await session.scalars(
+                        select(PlantDoctorVisit)
+                        .where(PlantDoctorVisit.plant_id == plant.id)
+                        .order_by(PlantDoctorVisit.created_at.desc())
+                        .limit(5)
+                    )
+                ).all()
+            )
             assessment = await plant_doctor.analyze(
                 analysis_photo,
                 PlantDoctorContext(
@@ -634,6 +649,16 @@ def create_app(
                     moisture=plant.moisture,
                     temperature=plant.temperature,
                     illuminance=plant.illuminance,
+                    history=tuple(
+                        PlantDoctorHistoryContext(
+                            checked_at=visit.created_at.isoformat(),
+                            summary=visit.summary,
+                            recommendation=" · ".join(visit.next_steps),
+                            decision=visit.decision,
+                            outcome=visit.outcome,
+                        )
+                        for visit in previous_visits
+                    ),
                 ),
             )
         except InvalidPhotoError as exc:
@@ -652,13 +677,62 @@ def create_app(
                 ) from exc
             if exc.kind == "credentials":
                 raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail="Cloudflare rejected the configured Plant Doctor credentials.",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=(
+                        "Cloudflare rejected the Plant Doctor token. It may be expired, revoked, "
+                        "or missing Workers AI permissions; replace it in the app configuration."
+                    ),
+                ) from exc
+            if exc.kind == "configuration":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Cloudflare has not enabled this AI model for the account. Check the model "
+                        "agreement, account access, and Workers plan in Cloudflare."
+                    ),
+                ) from exc
+            if exc.kind == "capacity":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Cloudflare Workers AI is temporarily out of capacity. Your daily "
+                        "allowance was not identified as the cause; try again shortly."
+                    ),
+                ) from exc
+            if exc.kind == "rate_limit":
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=(
+                        "Cloudflare is receiving too many requests. Wait a minute and try again."
+                    ),
                 ) from exc
             raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Cloudflare could not complete the plant assessment. Try again shortly.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Cloudflare Workers AI could not be reached or did not return a valid "
+                    "assessment. The service may be unavailable; try again shortly."
+                ),
             ) from exc
+        visit = PlantDoctorVisit(
+            plant_id=plant.id,
+            summary=assessment.summary,
+            observations=assessment.observations,
+            possible_issues=assessment.possible_issues,
+            next_steps=assessment.next_steps,
+            sensor_snapshot={
+                "moisture": plant.moisture,
+                "temperature": plant.temperature,
+                "illuminance": plant.illuminance,
+            },
+            confidence=assessment.confidence,
+            provider=assessment.provider,
+            model=assessment.model,
+            neurons=assessment.neurons,
+            decision="pending",
+            outcome="not_tried",
+        )
+        session.add(visit)
+        await session.flush()
         session.add(
             AuditEvent(
                 actor=identity.actor,
@@ -674,7 +748,89 @@ def create_app(
             )
         )
         await session.commit()
-        return assessment
+        return assessment.model_copy(update={"visit_id": visit.id})
+
+    @application.get(
+        "/api/v1/plants/{plant_id}/doctor/history",
+        response_model=PlantDoctorHistoryResponse,
+    )
+    async def plant_doctor_history(
+        plant_id: str,
+        identity: CurrentIdentity,
+        session: Session,
+        limit: Annotated[int, Query(ge=1, le=10)] = 5,
+    ) -> PlantDoctorHistoryResponse:
+        del identity
+        plant = await session.get(Plant, plant_id)
+        if plant is None or not plant.active:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plant not found")
+        visits = list(
+            (
+                await session.scalars(
+                    select(PlantDoctorVisit)
+                    .where(PlantDoctorVisit.plant_id == plant.id)
+                    .order_by(PlantDoctorVisit.created_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+        )
+        return PlantDoctorHistoryResponse(
+            visits=[PlantDoctorVisitSummary.model_validate(visit) for visit in visits]
+        )
+
+    @application.patch(
+        "/api/v1/plants/{plant_id}/doctor/history/{visit_id}",
+        response_model=PlantDoctorVisitSummary,
+    )
+    async def update_plant_doctor_feedback(
+        plant_id: str,
+        visit_id: str,
+        payload: PlantDoctorFeedbackRequest,
+        identity: CurrentIdentity,
+        session: Session,
+    ) -> PlantDoctorVisitSummary:
+        visit = await session.scalar(
+            select(PlantDoctorVisit).where(
+                PlantDoctorVisit.id == visit_id,
+                PlantDoctorVisit.plant_id == plant_id,
+            )
+        )
+        if visit is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Doctor visit not found"
+            )
+        if payload.decision is None and payload.outcome is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Choose a recommendation decision or outcome.",
+            )
+        old_json = {"decision": visit.decision, "outcome": visit.outcome}
+        next_decision = payload.decision or visit.decision
+        next_outcome = payload.outcome or visit.outcome
+        if next_outcome != "not_tried" and next_decision != "accepted":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Only an accepted recommendation can have a care outcome.",
+            )
+        if payload.decision is not None:
+            visit.decision = payload.decision
+            if payload.decision == "declined":
+                visit.outcome = "not_tried"
+        if payload.outcome is not None:
+            visit.outcome = payload.outcome
+        session.add(
+            AuditEvent(
+                actor=identity.actor,
+                event_type="plant_doctor_feedback_updated",
+                object_type="plant_doctor_visit",
+                object_id=visit.id,
+                old_json=old_json,
+                new_json={"decision": visit.decision, "outcome": visit.outcome},
+            )
+        )
+        await session.commit()
+        await session.refresh(visit)
+        return PlantDoctorVisitSummary.model_validate(visit)
 
     @application.get(
         "/api/v1/plant-doctor/usage",
@@ -718,6 +874,19 @@ def create_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="The AI recommendation cannot be empty.",
             )
+        doctor_visit = None
+        if payload.visit_id:
+            doctor_visit = await session.scalar(
+                select(PlantDoctorVisit).where(
+                    PlantDoctorVisit.id == payload.visit_id,
+                    PlantDoctorVisit.plant_id == plant.id,
+                )
+            )
+            if doctor_visit is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="The Plant Doctor history entry was not found.",
+                )
         existing = await session.scalar(
             select(CareAction).where(
                 CareAction.plant_id == plant.id,
@@ -727,6 +896,10 @@ def create_app(
             )
         )
         if existing is not None:
+            if doctor_visit is not None:
+                doctor_visit.action_id = existing.id
+                doctor_visit.decision = "accepted"
+                await session.commit()
             return ActionSummary.model_validate(existing)
         now = datetime.now(UTC)
         action = CareAction(
@@ -745,6 +918,9 @@ def create_app(
         )
         session.add(action)
         await session.flush()
+        if doctor_visit is not None:
+            doctor_visit.action_id = action.id
+            doctor_visit.decision = "accepted"
         session.add(
             AuditEvent(
                 actor=identity.actor,
