@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.3
+
+- Configure SQLite WAL mode once during startup instead of whenever the
+  connection pool opens a connection, avoiding an exclusive-lock race that
+  could prevent all Home Assistant sensor synchronization.
+- Wait longer for short SQLite write contention and retry transient locked/busy
+  synchronization failures before abandoning the refresh.
+- Include the safe underlying database-driver message in synchronization logs
+  so future storage failures are actionable rather than reported only as
+  `OperationalError`.
+
 ## 0.8.2
 
 - Make Plant Doctor assessments explicitly species-aware: the prompt now treats

@@ -47,6 +47,11 @@ Home Assistant for an immediate refresh. The dashboard refreshes while it is
 open, so the Home Assistant ingress and LAN views converge on the same database
 state without a manual browser reload.
 
+PlantCare uses SQLite WAL mode for concurrent dashboard reads and sensor writes.
+WAL is configured once before the web server accepts requests; brief database
+contention is retried automatically. A persistent synchronization storage error
+is logged with its underlying driver reason without exposing credentials.
+
 The port mapped to internal `8098` is for the trusted home LAN only. Do not
 port-forward it. Remote use must go through Home Assistant ingress and the
 household's existing secure Home Assistant remote-access method.

@@ -135,7 +135,7 @@ function mockApi(actionFixture = action, plantFixture = plant, simulator = true)
     if (url.endsWith("/plants")) return new Response(JSON.stringify({ plants: [currentPlant], summary: { total: 1, action_needed: 1, overdue: 0, sensor_issues: 0 } }), { status: 200 });
     if (url.endsWith("/actions")) return new Response(JSON.stringify({ actions: [actionFixture] }), { status: 200 });
     if (url.endsWith("/complete")) return new Response(JSON.stringify({ ...actionFixture, status: "completed", completed_at: "2026-08-14T10:00:00Z", completed_by: "Developer" }), { status: 200 });
-    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.2", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
+    if (url.endsWith("/health")) return new Response(JSON.stringify({ status: "ready", version: "0.8.3", database: "ready", simulator, plant_doctor_configured: true, home_assistant_notifications_enabled: !simulator, stale_sensor_hours: 72 }), { status: 200 });
     return new Response("", { status: 404 });
   });
 }

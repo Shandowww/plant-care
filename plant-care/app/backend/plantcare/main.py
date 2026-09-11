@@ -22,6 +22,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -96,6 +97,12 @@ logger = structlog.get_logger()
 AUTO_MANAGED_ACTION_TYPES = {"low_moisture", "sensor_issue"}
 
 
+def database_error_detail(exc: Exception) -> str:
+    """Return the driver message without SQL parameters or request credentials."""
+    original = exc.orig if isinstance(exc, OperationalError) else exc
+    return str(original).splitlines()[0][:300]
+
+
 def create_app(
     settings: Settings | None = None,
     home_assistant_client: HomeAssistantStateSource | None = None,
@@ -129,12 +136,27 @@ def create_app(
     sync_lock = asyncio.Lock()
 
     async def sync_once() -> SyncResult:
-        async with sync_lock, database.session_factory() as sync_session:
-            result = await sync_mapped_readings(
-                sync_session,
-                home_assistant,
-                stale_after=timedelta(hours=app_settings.stale_sensor_hours),
-            )
+        async with sync_lock:
+            for attempt in range(3):
+                try:
+                    async with database.session_factory() as sync_session:
+                        result = await sync_mapped_readings(
+                            sync_session,
+                            home_assistant,
+                            stale_after=timedelta(hours=app_settings.stale_sensor_hours),
+                        )
+                    break
+                except OperationalError as exc:
+                    detail = database_error_detail(exc)
+                    database_busy = "locked" in detail.casefold() or "busy" in detail.casefold()
+                    if not database_busy or attempt == 2:
+                        raise
+                    logger.warning(
+                        "home_assistant_sync_database_busy",
+                        attempt=attempt + 1,
+                        detail=detail,
+                    )
+                    await asyncio.sleep(0.25 * (attempt + 1))
         if notifications_enabled and notification_sink is not None:
             for event in result.notification_events:
                 try:
@@ -174,7 +196,11 @@ def create_app(
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("home_assistant_sync_failed", error=type(exc).__name__)
+                logger.warning(
+                    "home_assistant_sync_failed",
+                    error=type(exc).__name__,
+                    detail=database_error_detail(exc),
+                )
             await asyncio.sleep(app_settings.sync_interval_seconds)
 
     async def sync_after_mapping_change(plant_id: str) -> None:
@@ -195,6 +221,7 @@ def create_app(
                 "home_assistant_mapping_sync_failed",
                 plant_id=plant_id,
                 error=type(exc).__name__,
+                detail=database_error_detail(exc),
             )
 
     @asynccontextmanager
@@ -421,7 +448,11 @@ def create_app(
         try:
             result = await sync_once()
         except Exception as exc:
-            logger.warning("home_assistant_manual_sync_failed", error=type(exc).__name__)
+            logger.warning(
+                "home_assistant_manual_sync_failed",
+                error=type(exc).__name__,
+                detail=database_error_detail(exc),
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Home Assistant readings could not be synchronized",

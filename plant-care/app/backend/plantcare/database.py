@@ -11,9 +11,8 @@ from .models import Base
 @event.listens_for(Engine, "connect")
 def configure_sqlite(dbapi_connection: object, _connection_record: object) -> None:
     cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
-    cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA busy_timeout=10000")
     cursor.close()
 
 
@@ -23,6 +22,11 @@ class Database:
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
 
     async def initialize(self) -> None:
+        # Changing journal mode can require an exclusive lock. Do it once before
+        # request handling starts instead of on every pooled connection.
+        async with self.engine.connect() as connection:
+            await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+            await connection.commit()
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
 

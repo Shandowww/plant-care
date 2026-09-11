@@ -5,10 +5,12 @@ import plantcare.home_assistant as home_assistant_module
 import pytest
 from fastapi.testclient import TestClient
 from plantcare.config import Settings
+from plantcare.database import Database
 from plantcare.home_assistant import HomeAssistantClient
 from plantcare.main import create_app
 from plantcare.schemas import HomeAssistantEntity
 from plantcare.sync import normalize_reading
+from sqlalchemy import text
 
 
 class FakeHomeAssistant:
@@ -97,6 +99,27 @@ def production_client(
             "x-remote-user-name": "Test User",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_database_configures_wal_once_and_connection_safety_pragmas(tmp_path: Path) -> None:
+    settings = Settings(
+        environment="test",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'pragmas.db'}",
+    )
+    database = Database(settings)
+    await database.initialize()
+
+    async with database.engine.connect() as connection:
+        journal_mode = await connection.scalar(text("PRAGMA journal_mode"))
+        foreign_keys = await connection.scalar(text("PRAGMA foreign_keys"))
+        busy_timeout = await connection.scalar(text("PRAGMA busy_timeout"))
+
+    await database.close()
+    assert journal_mode == "wal"
+    assert foreign_keys == 1
+    assert busy_timeout == 10_000
 
 
 def test_mapped_home_assistant_values_are_persisted_and_idempotent(tmp_path: Path) -> None:
