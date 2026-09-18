@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.4
+
+- Commit valid Home Assistant readings before the optional stale-sensor action
+  and notification phase, so a later monitoring storage failure cannot erase
+  newly synchronized plant values.
+- Report whether a database failure happened during reading ingestion or sensor
+  monitoring, alongside the underlying SQLite reason.
+- Grant explicit AppArmor access to the `/data` directory itself as well as its
+  contents, allowing SQLite to manage journal and shared-memory sidecar files.
+
 ## 0.8.3
 
 - Configure SQLite WAL mode once during startup instead of whenever the

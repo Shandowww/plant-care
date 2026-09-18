@@ -61,6 +61,8 @@ jobs:
           grep -Fq "/usr/bin/supervisord rix," plant-care/apparmor.txt
           grep -Fq "/usr/sbin/nginx ix," plant-care/apparmor.txt
           grep -Fq "/usr/local/lib/** mr," plant-care/apparmor.txt
+          grep -Fq "/data/ rw," plant-care/apparmor.txt
+          grep -Fq "/data/** rwk," plant-care/apparmor.txt
           grep -Fq "/var/lib/nginx/ rw," plant-care/apparmor.txt
           grep -Fq "/var/lib/nginx/tmp/client_body/ rw," plant-care/apparmor.txt
           grep -Fq "/var/lib/nginx/tmp/proxy/ rw," plant-care/apparmor.txt

@@ -51,6 +51,9 @@ PlantCare uses SQLite WAL mode for concurrent dashboard reads and sensor writes.
 WAL is configured once before the web server accepts requests; brief database
 contention is retried automatically. A persistent synchronization storage error
 is logged with its underlying driver reason without exposing credentials.
+Valid readings are committed before stale-sensor actions are evaluated, so the
+core dashboard continues updating if the optional monitoring phase encounters a
+storage problem.
 
 The port mapped to internal `8098` is for the trusted home LAN only. Do not
 port-forward it. Remote use must go through Home Assistant ingress and the

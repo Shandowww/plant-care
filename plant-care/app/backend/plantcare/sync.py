@@ -4,12 +4,16 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Protocol
 
+import structlog
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import ActionStatus, AuditEvent, CareAction, Plant, Reading
 from .schemas import HomeAssistantEntity
+
+logger = structlog.get_logger()
 
 INVALID_STATES = {"", "none", "null", "unknown", "unavailable"}
 MAPPING_FIELDS = {
@@ -185,15 +189,39 @@ async def sync_mapped_readings(
         )
         readings_added += 1
 
-    notification_events: list[NotificationEvent] = []
-    existing_stale_actions = (
-        await session.scalars(
-            select(CareAction).where(
-                CareAction.type == "sensor_issue",
-                CareAction.deduplication_key.like(f"{STALE_ACTION_PREFIX}%"),
-            )
+    # Persist the primary sensor job before optional stale-sensor monitoring.
+    # A monitoring or notification-storage error must never roll back valid HA
+    # values, especially the first readings for a newly mapped plant.
+    for plant in plants:
+        if plant.id in latest_by_plant:
+            plant.last_reading_at = latest_by_plant[plant.id]
+    try:
+        await session.commit()
+    except OperationalError as exc:
+        logger.warning(
+            "home_assistant_sync_database_error",
+            phase="reading_ingestion",
+            detail=str(exc.orig).splitlines()[0][:300],
         )
-    ).all()
+        raise
+
+    notification_events: list[NotificationEvent] = []
+    try:
+        existing_stale_actions = (
+            await session.scalars(
+                select(CareAction).where(
+                    CareAction.type == "sensor_issue",
+                    CareAction.deduplication_key.like(f"{STALE_ACTION_PREFIX}%"),
+                )
+            )
+        ).all()
+    except OperationalError as exc:
+        logger.warning(
+            "home_assistant_sync_database_error",
+            phase="sensor_monitoring",
+            detail=str(exc.orig).splitlines()[0][:300],
+        )
+        raise
     stale_actions_by_key = {action.deduplication_key: action for action in existing_stale_actions}
     for key, (plant, metric, _entity, normalized, last_changed) in stale_readings.items():
         action = stale_actions_by_key.get(key)
@@ -308,8 +336,6 @@ async def sync_mapped_readings(
         action.plant_id for action in active_actions if action.type == "sensor_issue"
     }
     for plant in plants:
-        if plant.id in latest_by_plant:
-            plant.last_reading_at = latest_by_plant[plant.id]
         if plant.id in active_sensor_issue_plants:
             plant.state = "sensor_issue"
         elif plant.id in plants_with_critical_data and plant.state == "sensor_issue":

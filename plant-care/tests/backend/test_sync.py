@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -8,9 +9,10 @@ from plantcare.config import Settings
 from plantcare.database import Database
 from plantcare.home_assistant import HomeAssistantClient
 from plantcare.main import create_app
+from plantcare.models import Plant, PlantEntityMapping, Reading
 from plantcare.schemas import HomeAssistantEntity
-from plantcare.sync import normalize_reading
-from sqlalchemy import text
+from plantcare.sync import normalize_reading, sync_mapped_readings
+from sqlalchemy import event, func, select, text
 
 
 class FakeHomeAssistant:
@@ -120,6 +122,67 @@ async def test_database_configures_wal_once_and_connection_safety_pragmas(tmp_pa
     assert journal_mode == "wal"
     assert foreign_keys == 1
     assert busy_timeout == 10_000
+
+
+@pytest.mark.asyncio
+async def test_valid_readings_survive_optional_monitoring_database_failure(tmp_path: Path) -> None:
+    settings = Settings(
+        environment="test",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'partial-sync.db'}",
+    )
+    database = Database(settings)
+    await database.initialize()
+    async with database.session_factory() as session:
+        plant = Plant(
+            display_name="Office Fern",
+            location="Office",
+            common_name="Boston fern",
+            scientific_name="Nephrolepis exaltata",
+            environment_type="indoor",
+            state="sensor_issue",
+            moisture_status="unknown",
+            temperature_status="unknown",
+        )
+        plant.entity_mapping = PlantEntityMapping(
+            moisture_entity_id="sensor.fern_moisture",
+            temperature_entity_id="sensor.fern_temperature",
+            battery_entity_id="sensor.fern_battery",
+            illuminance_entity_id="sensor.fern_illuminance",
+        )
+        session.add(plant)
+        await session.commit()
+
+    def fail_monitoring_query(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        if "FROM care_actions" in statement:
+            raise sqlite3.OperationalError("unable to open database file")
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", fail_monitoring_query)
+    try:
+        async with database.session_factory() as session:
+            with pytest.raises(sqlite3.OperationalError, match="unable to open database file"):
+                await sync_mapped_readings(session, FakeHomeAssistant())
+    finally:
+        event.remove(database.engine.sync_engine, "before_cursor_execute", fail_monitoring_query)
+
+    async with database.session_factory() as session:
+        refreshed = await session.scalar(select(Plant))
+        reading_count = await session.scalar(select(func.count()).select_from(Reading))
+    await database.close()
+
+    assert refreshed is not None
+    assert refreshed.moisture == 42
+    assert refreshed.temperature == 24
+    assert refreshed.battery == 91
+    assert refreshed.illuminance == 850
+    assert reading_count == 4
 
 
 def test_mapped_home_assistant_values_are_persisted_and_idempotent(tmp_path: Path) -> None:
