@@ -83,13 +83,34 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.9.0",
+        "version": "0.9.1",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
         "home_assistant_notifications_enabled": False,
         "stale_sensor_hours": 72,
     }
+
+
+def test_spa_entry_point_is_not_cached(tmp_path: Path) -> None:
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html>PlantCare</html>", encoding="utf-8")
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'spa.db'}",
+        static_dir=static_dir,
+    )
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/plants")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == ("no-store, no-cache, must-revalidate, max-age=0")
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["expires"] == "0"
 
 
 def test_simulator_seeds_nine_plants(development_client: TestClient) -> None:

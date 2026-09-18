@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+- Prevent Home Assistant's embedded iOS browser from retaining a previous PlantCare frontend after an app update.
+- Ensure the SPA entry page is always revalidated while retaining content-hashed static assets.
+
 ## 0.9.0
 
 - Add an optional precise position alongside each Home Assistant area, so plants

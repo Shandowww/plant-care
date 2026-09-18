@@ -1350,6 +1350,16 @@ def create_app(
         index = static_dir / "index.html"
         if not index.is_file():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Frontend not built")
-        return FileResponse(index)
+        return FileResponse(
+            index,
+            headers={
+                # Home Assistant embeds the dashboard in a long-lived WebView. If the
+                # SPA entry point is cached, an app update can keep loading the old
+                # hashed asset names until the mobile app is force-closed.
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     return application
