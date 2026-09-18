@@ -1,9 +1,15 @@
-export type PlantState = "good" | "watch" | "action_needed" | "overdue" | "sensor_issue";
+export type PlantState =
+  | "good"
+  | "watch"
+  | "action_needed"
+  | "overdue"
+  | "sensor_issue";
 
 export interface Plant {
   id: string;
   display_name: string;
   location: string;
+  specific_position: string | null;
   common_name: string;
   scientific_name: string | null;
   environment_type: string;
@@ -31,7 +37,14 @@ export interface PlantEntityMapping {
 export interface HomeAssistantEntity {
   entity_id: string;
   name: string;
-  device_class: "moisture" | "humidity" | "temperature" | "battery" | "illuminance" | string | null;
+  device_class:
+    | "moisture"
+    | "humidity"
+    | "temperature"
+    | "battery"
+    | "illuminance"
+    | string
+    | null;
   state: string;
   unit: string | null;
   area_name: string | null;
@@ -57,6 +70,7 @@ export interface PlantResponse {
 export interface PlantCreate {
   display_name: string;
   location: string;
+  specific_position: string | null;
   common_name: string;
   scientific_name: string | null;
   environment_type: "indoor" | "outdoor_covered" | "outdoor_exposed";
@@ -88,7 +102,13 @@ export interface ActionHistoryEvent {
   id: string;
   action_id: string;
   actor: string;
-  event_type: "action_snoozed" | "action_completed" | "action_auto_completed" | "action_reopened" | "ai_recommendation_created" | "sensor_issue_created";
+  event_type:
+    | "action_snoozed"
+    | "action_completed"
+    | "action_auto_completed"
+    | "action_reopened"
+    | "ai_recommendation_created"
+    | "sensor_issue_created";
   old_json: Record<string, unknown> | null;
   new_json: Record<string, unknown> | null;
   occurred_at: string;
@@ -114,11 +134,20 @@ export interface PlantDoctorResponse {
   observations: string[];
   possible_issues: string[];
   next_steps: string[];
+  watering_guidance: PlantDoctorWateringGuidance;
   confidence: "low" | "medium" | "high";
   provider: string;
   model: string;
   neurons: number | null;
   disclaimer: string;
+}
+
+export interface PlantDoctorWateringGuidance {
+  assessment: string;
+  notification_point: string;
+  manual_checks: string[];
+  watering_steps: string[];
+  drying_steps: string[];
 }
 
 export interface PlantDoctorUsageResponse {
@@ -130,7 +159,11 @@ export interface PlantDoctorUsageResponse {
 }
 
 export type PlantDoctorDecision = "pending" | "accepted" | "declined";
-export type PlantDoctorOutcome = "not_tried" | "helped" | "did_not_help" | "not_sure";
+export type PlantDoctorOutcome =
+  | "not_tried"
+  | "helped"
+  | "did_not_help"
+  | "not_sure";
 
 export interface PlantDoctorVisit {
   id: string;
@@ -139,6 +172,7 @@ export interface PlantDoctorVisit {
   observations: string[];
   possible_issues: string[];
   next_steps: string[];
+  watering_guidance: PlantDoctorWateringGuidance | null;
   sensor_snapshot: Record<string, number | null>;
   confidence: "low" | "medium" | "high";
   provider: string;

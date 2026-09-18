@@ -73,6 +73,7 @@ class PlantSummary(BaseModel):
     id: str
     display_name: str
     location: str
+    specific_position: str | None
     common_name: str
     scientific_name: str | None
     environment_type: str
@@ -109,12 +110,21 @@ class PlantListResponse(BaseModel):
     summary: DashboardSummary
 
 
+class PlantDoctorWateringGuidance(BaseModel):
+    assessment: str
+    notification_point: str
+    manual_checks: list[str]
+    watering_steps: list[str]
+    drying_steps: list[str]
+
+
 class PlantDoctorResponse(BaseModel):
     visit_id: str | None = None
     summary: str
     observations: list[str]
     possible_issues: list[str]
     next_steps: list[str]
+    watering_guidance: PlantDoctorWateringGuidance
     confidence: Literal["low", "medium", "high"]
     provider: str
     model: str
@@ -144,6 +154,7 @@ class PlantDoctorVisitSummary(BaseModel):
     observations: list[str]
     possible_issues: list[str]
     next_steps: list[str]
+    watering_guidance: PlantDoctorWateringGuidance | None
     sensor_snapshot: dict[str, float | None]
     confidence: Literal["low", "medium", "high"]
     provider: str
@@ -171,6 +182,7 @@ class PlantDoctorFeedbackRequest(BaseModel):
 class PlantCreateRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     location: str = Field(min_length=1, max_length=120)
+    specific_position: str | None = Field(default=None, max_length=160)
     common_name: str = Field(min_length=1, max_length=120)
     scientific_name: str | None = Field(default=None, max_length=160)
     environment_type: str = Field(
@@ -182,6 +194,7 @@ class PlantCreateRequest(BaseModel):
 class PlantUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     location: str | None = Field(default=None, min_length=1, max_length=120)
+    specific_position: str | None = Field(default=None, max_length=160)
     common_name: str | None = Field(default=None, min_length=1, max_length=120)
     scientific_name: str | None = Field(default=None, max_length=160)
     environment_type: str | None = Field(

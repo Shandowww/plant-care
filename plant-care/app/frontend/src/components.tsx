@@ -12,7 +12,10 @@ import { useState } from "react";
 import type { Plant, PlantState } from "./types";
 import { plantImage } from "./plant-images";
 
-const stateContent: Record<PlantState, { label: string; icon: typeof CircleAlert }> = {
+const stateContent: Record<
+  PlantState,
+  { label: string; icon: typeof CircleAlert }
+> = {
   good: { label: "Good", icon: Clock3 },
   watch: { label: "Watch", icon: CircleAlert },
   action_needed: { label: "Action needed", icon: CircleAlert },
@@ -32,23 +35,79 @@ type TemperatureProfile = { minimum: number; maximum: number; note: string };
 type MoistureProfile = { minimum: number; maximum: number; note: string };
 
 const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
-  "epipremnum aureum": { minimum: 18, maximum: 29, note: "Typical range for golden pothos" },
-  "monstera deliciosa": { minimum: 16, maximum: 29, note: "Typical range for Monstera deliciosa" },
-  "olea europaea": { minimum: 10, maximum: 30, note: "Broad typical range for a potted olive tree" },
-  "dracaena trifasciata": { minimum: 16, maximum: 29, note: "Typical range for a snake plant" },
-  spathiphyllum: { minimum: 20, maximum: 29, note: "Typical range for a peace lily" },
-  "euphorbia tithymaloides": { minimum: 16, maximum: 29, note: "Typical range for devil's backbone" },
-  "euphorbia leuconeura": { minimum: 15, maximum: 30, note: "Typical range for Madagascar jewel" },
+  "epipremnum aureum": {
+    minimum: 18,
+    maximum: 29,
+    note: "Typical range for golden pothos",
+  },
+  "monstera deliciosa": {
+    minimum: 16,
+    maximum: 29,
+    note: "Typical range for Monstera deliciosa",
+  },
+  "olea europaea": {
+    minimum: 10,
+    maximum: 30,
+    note: "Broad typical range for a potted olive tree",
+  },
+  "dracaena trifasciata": {
+    minimum: 16,
+    maximum: 29,
+    note: "Typical range for a snake plant",
+  },
+  spathiphyllum: {
+    minimum: 20,
+    maximum: 29,
+    note: "Typical range for a peace lily",
+  },
+  "euphorbia tithymaloides": {
+    minimum: 16,
+    maximum: 29,
+    note: "Typical range for devil's backbone",
+  },
+  "euphorbia leuconeura": {
+    minimum: 15,
+    maximum: 30,
+    note: "Typical range for Madagascar jewel",
+  },
 };
 
 const speciesMoistureProfiles: Record<string, MoistureProfile> = {
-  "epipremnum aureum": { minimum: 25, maximum: 60, note: "Typical sensor guidance for golden pothos" },
-  "monstera deliciosa": { minimum: 30, maximum: 65, note: "Typical sensor guidance for Monstera deliciosa" },
-  "olea europaea": { minimum: 15, maximum: 45, note: "Typical sensor guidance for a potted olive tree" },
-  "dracaena trifasciata": { minimum: 10, maximum: 45, note: "Typical sensor guidance for a snake plant" },
-  spathiphyllum: { minimum: 35, maximum: 70, note: "Typical sensor guidance for a peace lily" },
-  "euphorbia tithymaloides": { minimum: 15, maximum: 45, note: "Typical sensor guidance for devil's backbone" },
-  "euphorbia leuconeura": { minimum: 20, maximum: 50, note: "Typical sensor guidance for Madagascar jewel" },
+  "epipremnum aureum": {
+    minimum: 25,
+    maximum: 60,
+    note: "Typical sensor guidance for golden pothos",
+  },
+  "monstera deliciosa": {
+    minimum: 30,
+    maximum: 65,
+    note: "Typical sensor guidance for Monstera deliciosa",
+  },
+  "olea europaea": {
+    minimum: 15,
+    maximum: 45,
+    note: "Typical sensor guidance for a potted olive tree",
+  },
+  "dracaena trifasciata": {
+    minimum: 10,
+    maximum: 45,
+    note: "Typical sensor guidance for a snake plant",
+  },
+  spathiphyllum: {
+    minimum: 35,
+    maximum: 70,
+    note: "Typical sensor guidance for a peace lily",
+  },
+  "euphorbia tithymaloides": {
+    minimum: 15,
+    maximum: 45,
+    note: "Typical sensor guidance for devil's backbone",
+  },
+  "euphorbia leuconeura": {
+    minimum: 20,
+    maximum: 50,
+    note: "Typical sensor guidance for Madagascar jewel",
+  },
 };
 
 function temperatureProfile(plant: Plant): TemperatureProfile {
@@ -62,12 +121,27 @@ function temperatureProfile(plant: Plant): TemperatureProfile {
     if (genus) return genus[1];
   }
   const commonName = plant.common_name.trim().toLowerCase();
-  if (commonName.includes("orchid") || scientificName?.includes("phalaenopsis")) {
-    return { minimum: 16, maximum: 29, note: "Broad warm-growing orchid fallback; confirm the exact orchid for a narrower range" };
+  if (
+    commonName.includes("orchid") ||
+    scientificName?.includes("phalaenopsis")
+  ) {
+    return {
+      minimum: 16,
+      maximum: 29,
+      note: "Broad warm-growing orchid fallback; confirm the exact orchid for a narrower range",
+    };
   }
   return plant.environment_type === "indoor"
-    ? { minimum: 18, maximum: 29, note: "General indoor fallback until the species is confirmed" }
-    : { minimum: 5, maximum: 35, note: "General outdoor fallback until the species is confirmed" };
+    ? {
+        minimum: 18,
+        maximum: 29,
+        note: "General indoor fallback until the species is confirmed",
+      }
+    : {
+        minimum: 5,
+        maximum: 35,
+        note: "General outdoor fallback until the species is confirmed",
+      };
 }
 
 function moistureProfile(plant: Plant): MoistureProfile {
@@ -78,16 +152,31 @@ function moistureProfile(plant: Plant): MoistureProfile {
   }
   const commonName = plant.common_name.trim().toLowerCase();
   if (commonName.includes("orchid")) {
-    return { minimum: 20, maximum: 55, note: "Broad orchid fallback; species and potting medium can change this substantially" };
+    return {
+      minimum: 20,
+      maximum: 55,
+      note: "Broad orchid fallback; species and potting medium can change this substantially",
+    };
   }
   return plant.environment_type === "indoor"
-    ? { minimum: 20, maximum: 60, note: "General indoor fallback until the species is confirmed" }
-    : { minimum: 15, maximum: 65, note: "General outdoor-container fallback until the species is confirmed" };
+    ? {
+        minimum: 20,
+        maximum: 60,
+        note: "General indoor fallback until the species is confirmed",
+      }
+    : {
+        minimum: 15,
+        maximum: 65,
+        note: "General outdoor-container fallback until the species is confirmed",
+      };
 }
 
 function timeAgo(value: string | null): string {
   if (!value) return "No valid reading";
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - new Date(value).getTime()) / 60_000),
+  );
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
   return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
@@ -96,13 +185,23 @@ function timeAgo(value: string | null): string {
 function BotanicalVisual({ plant }: { plant: Plant }) {
   const image = plantImage(plant);
   if (image) {
-    return <>
-      <img className="plant-reference-image" src={image.src} alt={image.alt} />
-    </>;
+    return (
+      <>
+        <img
+          className="plant-reference-image"
+          src={image.src}
+          alt={image.alt}
+        />
+      </>
+    );
   }
   const variant = visualVariant[plant.display_name] ?? "sprout";
   return (
-    <div className={`botanical botanical--${variant}`} role="img" aria-label={`${plant.common_name} reference placeholder`}>
+    <div
+      className={`botanical botanical--${variant}`}
+      role="img"
+      aria-label={`${plant.common_name} reference placeholder`}
+    >
       <span className="leaf leaf--one" />
       <span className="leaf leaf--two" />
       <span className="leaf leaf--three" />
@@ -113,7 +212,13 @@ function BotanicalVisual({ plant }: { plant: Plant }) {
   );
 }
 
-export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plant: Plant) => void }) {
+export function PlantCard({
+  plant,
+  onDetails,
+}: {
+  plant: Plant;
+  onDetails: (plant: Plant) => void;
+}) {
   const state = stateContent[plant.state];
   const StateIcon = state.icon;
   const [temperatureOpen, setTemperatureOpen] = useState(false);
@@ -123,7 +228,11 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
   const temperatureRangeId = `temperature-range-${plant.id}`;
   const moistureRangeId = `moisture-range-${plant.id}`;
   return (
-    <article className={`plant-card plant-card--${plant.state}`} aria-labelledby={`plant-${plant.id}`} onClick={() => onDetails(plant)}>
+    <article
+      className={`plant-card plant-card--${plant.state}`}
+      aria-labelledby={`plant-${plant.id}`}
+      onClick={() => onDetails(plant)}
+    >
       <div className="plant-card__visual">
         <BotanicalVisual plant={plant} />
         <span className={`status-pill status-pill--${plant.state}`}>
@@ -137,7 +246,11 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
             <h2 id={`plant-${plant.id}`}>{plant.display_name}</h2>
             <p>{plant.scientific_name ?? "Species not confirmed"}</p>
           </div>
-          <span className="location"><MapPin size={13} aria-hidden="true" />{plant.location}</span>
+          <span className="location">
+            <MapPin size={13} aria-hidden="true" />
+            {plant.location}
+            {plant.specific_position ? ` · ${plant.specific_position}` : ""}
+          </span>
         </div>
 
         <div className="readings" aria-label="Latest readings">
@@ -153,7 +266,12 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
             }}
           >
             <Droplets size={17} aria-hidden="true" />
-            <span><strong>{plant.moisture === null ? "—" : `${plant.moisture}%`}</strong>Moisture</span>
+            <span>
+              <strong>
+                {plant.moisture === null ? "—" : `${plant.moisture}%`}
+              </strong>
+              Moisture
+            </span>
           </button>
           <button
             className={`reading reading-button reading--${plant.temperature_status}`}
@@ -167,22 +285,58 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
             }}
           >
             <Thermometer size={17} aria-hidden="true" />
-            <span><strong>{plant.temperature === null ? "—" : `${plant.temperature.toFixed(1)}°`}</strong>Local temp</span>
+            <span>
+              <strong>
+                {plant.temperature === null
+                  ? "—"
+                  : `${plant.temperature.toFixed(1)}°`}
+              </strong>
+              Local temp
+            </span>
           </button>
-          <div className={`reading ${plant.battery !== null && plant.battery < 20 ? "reading--low" : ""}`}>
+          <div
+            className={`reading ${plant.battery !== null && plant.battery < 20 ? "reading--low" : ""}`}
+          >
             <BatteryMedium size={17} aria-hidden="true" />
-            <span><strong>{plant.battery === null ? "—" : `${plant.battery}%`}</strong>Battery</span>
+            <span>
+              <strong>
+                {plant.battery === null ? "—" : `${plant.battery}%`}
+              </strong>
+              Battery
+            </span>
           </div>
           {moistureOpen && (
-            <div className="reading-range-note" id={moistureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
-              <strong>Suggested soil-moisture sensor band: {preferredMoisture.minimum}–{preferredMoisture.maximum}%</strong>
-              <span>{preferredMoisture.note}. Use the trend as guidance because readings vary by sensor, substrate, and placement.</span>
+            <div
+              className="reading-range-note"
+              id={moistureRangeId}
+              role="status"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <strong>
+                Suggested soil-moisture sensor band: {preferredMoisture.minimum}
+                –{preferredMoisture.maximum}%
+              </strong>
+              <span>
+                {preferredMoisture.note}. Use the trend as guidance because
+                readings vary by sensor, substrate, and placement.
+              </span>
             </div>
           )}
           {temperatureOpen && (
-            <div className="reading-range-note" id={temperatureRangeId} role="status" onClick={(event) => event.stopPropagation()}>
-              <strong>Normal temperature range: {preferredTemperature.minimum}–{preferredTemperature.maximum}°C</strong>
-              <span>{preferredTemperature.note}. Guidance only; temperature alerts are not automated yet.</span>
+            <div
+              className="reading-range-note"
+              id={temperatureRangeId}
+              role="status"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <strong>
+                Normal temperature range: {preferredTemperature.minimum}–
+                {preferredTemperature.maximum}°C
+              </strong>
+              <span>
+                {preferredTemperature.note}. Guidance only; temperature alerts
+                are not automated yet.
+              </span>
             </div>
           )}
         </div>
@@ -200,9 +354,20 @@ export function PlantCard({ plant, onDetails }: { plant: Plant; onDetails: (plan
         )}
 
         <div className="plant-card__footer">
-          <span className="last-reading"><Clock3 size={13} aria-hidden="true" />{timeAgo(plant.last_reading_at)}</span>
+          <span className="last-reading">
+            <Clock3 size={13} aria-hidden="true" />
+            {timeAgo(plant.last_reading_at)}
+          </span>
           <div className="card-actions">
-            <button className="detail-button" type="button" aria-label={`Open ${plant.display_name} details`} onClick={(event) => { event.stopPropagation(); onDetails(plant); }}>
+            <button
+              className="detail-button"
+              type="button"
+              aria-label={`Open ${plant.display_name} details`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDetails(plant);
+              }}
+            >
               Details <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>

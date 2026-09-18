@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+
+- Add an optional precise position alongside each Home Assistant area, so plants
+  can be identified as, for example, “Balcony · right side” without encoding the
+  position in their name.
+- Give Plant Doctor a bounded seven-day soil-moisture summary, including trend
+  and supported current wet/dry duration, without sending raw Home Assistant
+  entity history.
+- Return a structured, species-aware watering plan with a provisional alert
+  point, multi-spot root-zone checks, watering method, and evidence-gated drying
+  advice. Save that guidance in the local patient history.
+
 ## 0.8.5
 
 - Return to Home Assistant's maintained default AppArmor policy instead of

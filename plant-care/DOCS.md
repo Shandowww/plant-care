@@ -15,6 +15,8 @@ its own local database.
    PlantCare preselects companion entities from the same device and suggests an
    editable plant name and Home Assistant area. Illuminance may be mapped from
    another sensor in the same area when the plant device does not provide it.
+   Add an optional precise position such as “right side” or “beside the window”;
+   this stays separate from the Home Assistant area and remains editable.
 5. Optionally choose a private cover photo while adding the plant. It can be
    added, replaced, or removed later from **Details → Edit plant**.
 6. Optional: configure Plant Doctor with your own Cloudflare account credentials
@@ -96,7 +98,9 @@ For each check, PlantCare asks the user to take or choose a separate current
 diagnostic photo and provide fresh consent. It does not use, replace, or store
 the plant's cover photo for this purpose. It sends Cloudflare a temporary
 metadata-free copy resized to at most 1280 pixels, the plant identity,
-location/exposure, and the latest moisture, temperature, and illuminance values.
+area/precise position/exposure, the latest moisture, temperature, and
+illuminance values, and a compact summary of up to seven days of local
+soil-moisture readings. Raw Home Assistant entity history is not sent.
 On later checks it also sends at most five recent text-only assessment summaries,
 recommendations, queue decisions, and outcomes. Previous diagnostic photos,
 Home Assistant credentials, and entity IDs are not sent.
@@ -108,6 +112,13 @@ recommendation** and remains manually completable. On a later visit, an accepted
 recommendation can be marked **Helped**, **Didn't help**, or **Not sure**. That
 feedback helps the next assessment avoid repeating unsuccessful advice without
 new evidence. AI output never changes care or controls devices by itself.
+
+Each result includes a watering plan: a provisional sensor notification point,
+instructions for checking several root-zone spots before watering, a suitable
+watering and drainage method, and drying advice only when the recent evidence
+supports excess moisture. The notification percentage is intentionally a
+starting point to calibrate against that sensor, substrate, probe placement, and
+pot; it is not treated as a universal watering threshold.
 
 The consent screen also shows how many successful Plant Doctor checks this
 PlantCare installation has completed since 00:00 UTC. It includes a reminder of

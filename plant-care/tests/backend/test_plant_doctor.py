@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 import httpx2
 import pytest
@@ -6,9 +7,12 @@ from plantcare.care_profiles import care_profile
 from plantcare.plant_doctor import (
     MODEL_ID,
     CloudflarePlantDoctor,
+    MoistureHistoryContext,
+    MoistureHistoryPoint,
     PlantDoctorContext,
     PlantDoctorHistoryContext,
     PlantDoctorProviderError,
+    summarize_moisture_history,
 )
 
 
@@ -18,6 +22,7 @@ def context() -> PlantDoctorContext:
         common_name="Golden pothos",
         scientific_name="Epipremnum aureum",
         location="Kitchen",
+        specific_position="Right shelf",
         environment_type="indoor",
         moisture=31,
         temperature=24.5,
@@ -25,6 +30,17 @@ def context() -> PlantDoctorContext:
         temperature_range_celsius=(18, 29),
         soil_moisture_sensor_range_percent=(25, 60),
         care_profile_basis="golden pothos profile",
+        moisture_history=MoistureHistoryContext(
+            window_hours=168,
+            readings_count=3,
+            oldest_percent=41,
+            latest_percent=31,
+            minimum_percent=31,
+            maximum_percent=41,
+            trend="falling",
+            current_high_streak_hours_at_least=None,
+            current_low_streak_hours_at_least=None,
+        ),
     )
 
 
@@ -63,6 +79,15 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
                             "observations": ["Green leaves"],
                             "possible_issues": [],
                             "next_steps": ["Check leaf undersides"],
+                            "watering_guidance": {
+                                "assessment": "Wait and keep monitoring.",
+                                "notification_point": (
+                                    "Start with an alert below 25% and calibrate it."
+                                ),
+                                "manual_checks": ["Check two root-zone spots."],
+                                "watering_steps": ["Water slowly until excess drains."],
+                                "drying_steps": [],
+                            },
                             "confidence": "medium",
                         }
                     ),
@@ -80,6 +105,28 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
     assert result.summary == "Mostly healthy."
     assert result.neurons == 7.25
     assert result.provider == "Cloudflare Workers AI"
+    assert result.watering_guidance.notification_point.startswith("Start with")
+
+
+def test_moisture_history_summarizes_trend_and_current_wet_streak() -> None:
+    now = datetime(2026, 9, 18, 12, tzinfo=UTC)
+    summary = summarize_moisture_history(
+        [
+            MoistureHistoryPoint(now - timedelta(hours=72), 48),
+            MoistureHistoryPoint(now - timedelta(hours=50), 67),
+            MoistureHistoryPoint(now - timedelta(hours=24), 70),
+        ],
+        now=now,
+        lower_percent=25,
+        upper_percent=60,
+    )
+
+    assert summary.readings_count == 3
+    assert summary.trend == "rising"
+    assert summary.minimum_percent == 48
+    assert summary.maximum_percent == 70
+    assert summary.current_high_streak_hours_at_least == 50
+    assert summary.current_low_streak_hours_at_least is None
 
 
 @pytest.mark.asyncio

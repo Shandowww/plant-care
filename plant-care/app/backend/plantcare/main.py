@@ -56,10 +56,12 @@ from .photos import (
 )
 from .plant_doctor import (
     CloudflarePlantDoctor,
+    MoistureHistoryPoint,
     PlantDoctorContext,
     PlantDoctorHistoryContext,
     PlantDoctorProviderError,
     PlantDoctorSource,
+    summarize_moisture_history,
 )
 from .schemas import (
     ActionHistoryItem,
@@ -517,6 +519,7 @@ def create_app(
         plant = Plant(
             display_name=payload.display_name.strip(),
             location=payload.location.strip(),
+            specific_position=(payload.specific_position or "").strip() or None,
             common_name=payload.common_name.strip(),
             scientific_name=(payload.scientific_name or "").strip() or None,
             environment_type=payload.environment_type,
@@ -540,6 +543,7 @@ def create_app(
                 new_json={
                     "display_name": plant.display_name,
                     "location": plant.location,
+                    "specific_position": plant.specific_position,
                     "entity_mapping": (
                         payload.entity_mapping.model_dump()
                         if payload.entity_mapping is not None
@@ -567,6 +571,7 @@ def create_app(
         old_values = {
             "display_name": plant.display_name,
             "location": plant.location,
+            "specific_position": plant.specific_position,
             "common_name": plant.common_name,
             "scientific_name": plant.scientific_name,
             "environment_type": plant.environment_type,
@@ -744,6 +749,21 @@ def create_app(
                     )
                 ).all()
             )
+            moisture_history_started_at = datetime.now(UTC) - timedelta(days=7)
+            moisture_readings = list(
+                (
+                    await session.scalars(
+                        select(Reading)
+                        .where(
+                            Reading.plant_id == plant.id,
+                            Reading.metric == "moisture",
+                            Reading.observed_at >= moisture_history_started_at,
+                        )
+                        .order_by(Reading.observed_at.desc())
+                        .limit(500)
+                    )
+                ).all()
+            )
             profile = care_profile(
                 plant.scientific_name,
                 plant.common_name,
@@ -756,6 +776,7 @@ def create_app(
                     common_name=plant.common_name,
                     scientific_name=plant.scientific_name,
                     location=plant.location,
+                    specific_position=plant.specific_position,
                     environment_type=plant.environment_type,
                     moisture=plant.moisture,
                     temperature=plant.temperature,
@@ -769,6 +790,18 @@ def create_app(
                         profile.moisture_maximum,
                     ),
                     care_profile_basis=profile.basis,
+                    moisture_history=summarize_moisture_history(
+                        [
+                            MoistureHistoryPoint(
+                                observed_at=reading.observed_at,
+                                value=reading.value,
+                            )
+                            for reading in moisture_readings
+                        ],
+                        now=datetime.now(UTC),
+                        lower_percent=profile.moisture_minimum,
+                        upper_percent=profile.moisture_maximum,
+                    ),
                     history=tuple(
                         PlantDoctorHistoryContext(
                             checked_at=visit.created_at.isoformat(),
@@ -776,6 +809,11 @@ def create_app(
                             recommendation=" · ".join(visit.next_steps),
                             decision=visit.decision,
                             outcome=visit.outcome,
+                            watering_summary=(
+                                visit.watering_guidance.get("assessment")
+                                if isinstance(visit.watering_guidance, dict)
+                                else None
+                            ),
                         )
                         for visit in previous_visits
                     ),
@@ -839,6 +877,7 @@ def create_app(
             observations=assessment.observations,
             possible_issues=assessment.possible_issues,
             next_steps=assessment.next_steps,
+            watering_guidance=assessment.watering_guidance.model_dump(),
             sensor_snapshot={
                 "moisture": plant.moisture,
                 "temperature": plant.temperature,

@@ -1,11 +1,13 @@
 import base64
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 import httpx2
 
-from .schemas import PlantDoctorResponse
+from .schemas import PlantDoctorResponse, PlantDoctorWateringGuidance
 
 MODEL_ID = "@cf/meta/llama-3.2-11b-vision-instruct"
 PROVIDER_NAME = "Cloudflare Workers AI"
@@ -22,6 +24,26 @@ class PlantDoctorHistoryContext:
     recommendation: str
     decision: str
     outcome: str
+    watering_summary: str | None = None
+
+
+@dataclass(frozen=True)
+class MoistureHistoryPoint:
+    observed_at: datetime
+    value: float
+
+
+@dataclass(frozen=True)
+class MoistureHistoryContext:
+    window_hours: int
+    readings_count: int
+    oldest_percent: float | None
+    latest_percent: float | None
+    minimum_percent: float | None
+    maximum_percent: float | None
+    trend: Literal["rising", "falling", "stable", "insufficient"]
+    current_high_streak_hours_at_least: float | None
+    current_low_streak_hours_at_least: float | None
 
 
 @dataclass(frozen=True)
@@ -30,6 +52,7 @@ class PlantDoctorContext:
     common_name: str
     scientific_name: str | None
     location: str
+    specific_position: str | None
     environment_type: str
     moisture: float | None
     temperature: float | None
@@ -37,6 +60,7 @@ class PlantDoctorContext:
     temperature_range_celsius: tuple[int, int]
     soil_moisture_sensor_range_percent: tuple[int, int]
     care_profile_basis: str
+    moisture_history: MoistureHistoryContext
     history: tuple[PlantDoctorHistoryContext, ...] = ()
 
 
@@ -87,15 +111,17 @@ class CloudflarePlantDoctor:
                                     "Do not claim certainty, prescribe pesticides, or treat sensor "
                                     "values as visual facts. Return only one JSON object with keys "
                                     "summary, observations, possible_issues, next_steps, "
-                                    "confidence. The three list fields must contain at most "
-                                    "three short strings. "
+                                    "watering_guidance, confidence. watering_guidance must be "
+                                    "an object with assessment and notification_point strings, "
+                                    "plus manual_checks, watering_steps, and drying_steps arrays. "
+                                    "Each list field must contain at most three short strings. "
                                     "Confidence must be low, medium, or high."
                                 ),
                             },
                             {"role": "user", "content": _prompt(context)},
                         ],
                         "image": f"data:image/jpeg;base64,{image}",
-                        "max_tokens": 420,
+                        "max_tokens": 700,
                         "temperature": 0.2,
                     },
                 )
@@ -132,7 +158,7 @@ class CloudflarePlantDoctor:
         usage = result.get("usage")
         if isinstance(usage, dict) and isinstance(usage.get("neurons"), int | float):
             neurons = float(usage["neurons"])
-        return _assessment(result["response"], neurons)
+        return _assessment(result["response"], neurons, context)
 
 
 def _prompt(context: PlantDoctorContext) -> str:
@@ -146,6 +172,21 @@ def _prompt(context: PlantDoctorContext) -> str:
         "starting_soil_moisture_sensor_band_percent": (context.soil_moisture_sensor_range_percent),
         "basis": context.care_profile_basis,
     }
+    moisture_history = {
+        "window_hours": context.moisture_history.window_hours,
+        "readings_count": context.moisture_history.readings_count,
+        "oldest_percent": context.moisture_history.oldest_percent,
+        "latest_percent": context.moisture_history.latest_percent,
+        "minimum_percent": context.moisture_history.minimum_percent,
+        "maximum_percent": context.moisture_history.maximum_percent,
+        "trend": context.moisture_history.trend,
+        "current_high_streak_hours_at_least": (
+            context.moisture_history.current_high_streak_hours_at_least
+        ),
+        "current_low_streak_hours_at_least": (
+            context.moisture_history.current_low_streak_hours_at_least
+        ),
+    }
     history_context = [
         {
             "checked_at": item.checked_at,
@@ -153,6 +194,7 @@ def _prompt(context: PlantDoctorContext) -> str:
             "recommendation": item.recommendation,
             "decision": item.decision,
             "outcome": item.outcome,
+            "watering_summary": item.watering_summary,
         }
         for item in context.history
     ]
@@ -174,15 +216,95 @@ def _prompt(context: PlantDoctorContext) -> str:
         "switching to generic advice.\n"
         f"Working identity — friendly name: {context.display_name}; common name: "
         f"{context.common_name}; scientific name: {context.scientific_name or 'unknown'}; "
-        f"location: {context.location}; "
+        f"Home Assistant area: {context.location}; precise position: "
+        f"{context.specific_position or 'not provided'}; "
         f"exposure: {context.environment_type}.\n"
         f"Latest optional sensor context: {json.dumps(sensor_context, separators=(',', ':'))}.\n"
         f"Care profile: {json.dumps(care_profile, separators=(',', ':'))}. Compare available "
         "temperature and soil-moisture readings with this profile when relevant. Treat the soil "
         "moisture percentage only as a starting sensor band because calibration, substrate, and "
         "probe placement vary.\n"
+        f"Recent soil-moisture history summary: "
+        f"{json.dumps(moisture_history, separators=(',', ':'))}. Do not claim the soil has "
+        "stayed wet or dry longer than this history supports. Streak durations labelled "
+        "at_least are lower bounds, not exact onset times. If the sample count is low, state "
+        "that the evidence is insufficient.\n"
+        "Build watering_guidance specifically for this plant and its current evidence. In "
+        "notification_point, use the lower edge of the supplied starting band as a provisional "
+        "alert point and explain that the user should calibrate it against this pot rather than "
+        "presenting it as a universal threshold. In manual_checks, explain how to check two or "
+        "three root-zone spots between the stem and pot wall and below the dry surface without "
+        "damaging roots. In watering_steps, explain an appropriate slow, even watering method, "
+        "drainage, and saucer handling; do not invent a fixed water volume when pot dimensions "
+        "are unknown. Only recommend drying interventions when the current reading or history "
+        "supports excess moisture. Prefer safe drainage, airflow, and species-suitable light or "
+        "temperature changes; do not prescribe direct heat, harsh sun, or repotting without "
+        "specific evidence. Remember that this percentage is soil moisture, not air humidity.\n"
         f"{history_instruction}"
     )
+
+
+def summarize_moisture_history(
+    points: list[MoistureHistoryPoint],
+    *,
+    now: datetime,
+    lower_percent: float,
+    upper_percent: float,
+    window_hours: int = 168,
+) -> MoistureHistoryContext:
+    """Reduce recent readings to a small, bounded context suitable for an AI prompt."""
+    ordered = sorted(points, key=lambda point: _as_utc(point.observed_at))
+    if not ordered:
+        return MoistureHistoryContext(
+            window_hours=window_hours,
+            readings_count=0,
+            oldest_percent=None,
+            latest_percent=None,
+            minimum_percent=None,
+            maximum_percent=None,
+            trend="insufficient",
+            current_high_streak_hours_at_least=None,
+            current_low_streak_hours_at_least=None,
+        )
+    values = [point.value for point in ordered]
+    trend: Literal["rising", "falling", "stable", "insufficient"] = "insufficient"
+    if len(ordered) >= 2:
+        change = values[-1] - values[0]
+        trend = "stable" if abs(change) < 2 else "rising" if change > 0 else "falling"
+
+    high_hours = _current_streak_hours(ordered, now, lambda value: value > upper_percent)
+    low_hours = _current_streak_hours(ordered, now, lambda value: value < lower_percent)
+    return MoistureHistoryContext(
+        window_hours=window_hours,
+        readings_count=len(ordered),
+        oldest_percent=round(values[0], 1),
+        latest_percent=round(values[-1], 1),
+        minimum_percent=round(min(values), 1),
+        maximum_percent=round(max(values), 1),
+        trend=trend,
+        current_high_streak_hours_at_least=high_hours,
+        current_low_streak_hours_at_least=low_hours,
+    )
+
+
+def _current_streak_hours(
+    points: list[MoistureHistoryPoint],
+    now: datetime,
+    predicate: Callable[[float], bool],
+) -> float | None:
+    if not predicate(points[-1].value):
+        return None
+    started_at = points[-1].observed_at
+    for point in reversed(points[:-1]):
+        if not predicate(point.value):
+            break
+        started_at = point.observed_at
+    hours = max((_as_utc(now) - _as_utc(started_at)).total_seconds() / 3600, 0)
+    return round(hours, 1)
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _has_error_code(payload: Any, code: int) -> bool:
@@ -191,7 +313,9 @@ def _has_error_code(payload: Any, code: int) -> bool:
     return any(isinstance(error, dict) and error.get("code") == code for error in payload["errors"])
 
 
-def _assessment(raw_response: str, neurons: float | None) -> PlantDoctorResponse:
+def _assessment(
+    raw_response: str, neurons: float | None, context: PlantDoctorContext
+) -> PlantDoctorResponse:
     text = raw_response.strip()
     if text.startswith("```"):
         text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
@@ -209,6 +333,7 @@ def _assessment(raw_response: str, neurons: float | None) -> PlantDoctorResponse
             observations=[],
             possible_issues=[],
             next_steps=["Inspect the plant directly before changing its care."],
+            watering_guidance=_fallback_watering_guidance(context),
             confidence="low",
             provider=PROVIDER_NAME,
             model=MODEL_ID,
@@ -226,6 +351,7 @@ def _assessment(raw_response: str, neurons: float | None) -> PlantDoctorResponse
         observations=_clean_list(parsed.get("observations")),
         possible_issues=_clean_list(parsed.get("possible_issues")),
         next_steps=_clean_list(parsed.get("next_steps")),
+        watering_guidance=_clean_watering_guidance(parsed.get("watering_guidance"), context),
         confidence=confidence,
         provider=PROVIDER_NAME,
         model=MODEL_ID,
@@ -242,3 +368,39 @@ def _clean_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip()[:300] for item in value if isinstance(item, str) and item.strip()][:3]
+
+
+def _clean_watering_guidance(
+    value: Any, context: PlantDoctorContext
+) -> PlantDoctorWateringGuidance:
+    fallback = _fallback_watering_guidance(context)
+    if not isinstance(value, dict):
+        return fallback
+    return PlantDoctorWateringGuidance(
+        assessment=_clean_text(value.get("assessment"), fallback.assessment),
+        notification_point=_clean_text(
+            value.get("notification_point"), fallback.notification_point
+        ),
+        manual_checks=_clean_list(value.get("manual_checks")) or fallback.manual_checks,
+        watering_steps=_clean_list(value.get("watering_steps")) or fallback.watering_steps,
+        drying_steps=_clean_list(value.get("drying_steps")),
+    )
+
+
+def _fallback_watering_guidance(context: PlantDoctorContext) -> PlantDoctorWateringGuidance:
+    lower = context.soil_moisture_sensor_range_percent[0]
+    return PlantDoctorWateringGuidance(
+        assessment="Use the sensor trend together with a manual root-zone check before watering.",
+        notification_point=(
+            f"Start with an alert below {lower}% and calibrate it against this pot's actual "
+            "root-zone moisture before treating it as the watering threshold."
+        ),
+        manual_checks=[
+            "Check two or three spots between the stem and pot wall below the dry surface."
+        ],
+        watering_steps=[
+            "If those root-zone checks are dry, water slowly and evenly, let excess "
+            "drain, and empty the saucer."
+        ],
+        drying_steps=[],
+    )

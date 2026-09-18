@@ -21,6 +21,13 @@ class StubPlantDoctor:
             observations=["Leaves are mostly green."],
             possible_issues=["One leaf may have a dry edge."],
             next_steps=["Inspect the underside of the leaves."],
+            watering_guidance={
+                "assessment": "Wait and keep monitoring.",
+                "notification_point": "Start with an alert below 25% and calibrate it.",
+                "manual_checks": ["Check two root-zone spots."],
+                "watering_steps": ["Water slowly until excess drains."],
+                "drying_steps": [],
+            },
             confidence="medium",
             provider="Cloudflare Workers AI",
             model="@cf/meta/llama-3.2-11b-vision-instruct",
@@ -76,7 +83,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.8.5",
+        "version": "0.9.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -168,6 +175,7 @@ def test_manual_plant_can_be_created(development_client: TestClient) -> None:
         json={
             "display_name": "Test Fern",
             "location": "Office",
+            "specific_position": "Right shelf",
             "common_name": "Boston fern",
             "scientific_name": "Nephrolepis exaltata",
             "environment_type": "indoor",
@@ -176,6 +184,7 @@ def test_manual_plant_can_be_created(development_client: TestClient) -> None:
 
     assert response.status_code == 201
     assert response.json()["display_name"] == "Test Fern"
+    assert response.json()["specific_position"] == "Right shelf"
     assert response.json()["state"] == "sensor_issue"
     plants = development_client.get("/api/v1/plants").json()
     assert plants["summary"]["total"] == 10
@@ -352,6 +361,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         assert max(image.size) == 1280
     assert context.display_name == plant["display_name"]
     assert context.moisture == plant["moisture"]
+    assert context.moisture_history.window_hours == 168
     assert context.temperature_range_celsius == (18, 29)
     assert context.soil_moisture_sensor_range_percent == (25, 60)
     assert context.care_profile_basis == "golden pothos profile"
@@ -365,6 +375,10 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
     assert initial_history.json() == {"visits": []}
     assert saved_history.json()["visits"][0]["decision"] == "pending"
     assert saved_history.json()["visits"][0]["sensor_snapshot"]["moisture"] == plant["moisture"]
+    assert (
+        saved_history.json()["visits"][0]["watering_guidance"]["assessment"]
+        == "Wait and keep monitoring."
+    )
     assert created_action.status_code == 200
     assert created_action.json()["type"] == "ai_recommendation"
     assert created_action.json()["recommendation"] == recommendation
@@ -411,10 +425,15 @@ def test_plant_can_be_edited_and_archived_without_losing_history(
     plant = development_client.get("/api/v1/plants").json()["plants"][0]
     updated = development_client.patch(
         f"/api/v1/plants/{plant['id']}",
-        json={"display_name": "Bedroom Peace Lily", "location": "Guest room"},
+        json={
+            "display_name": "Bedroom Peace Lily",
+            "location": "Guest room",
+            "specific_position": "North window",
+        },
     )
     assert updated.status_code == 200
     assert updated.json()["display_name"] == "Bedroom Peace Lily"
+    assert updated.json()["specific_position"] == "North window"
 
     removed = development_client.delete(f"/api/v1/plants/{plant['id']}")
     assert removed.status_code == 204
