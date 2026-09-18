@@ -104,13 +104,26 @@ def production_client(
 
 
 @pytest.mark.asyncio
-async def test_database_configures_wal_once_and_connection_safety_pragmas(tmp_path: Path) -> None:
+async def test_database_configures_wal_once_and_verifies_write_access(tmp_path: Path) -> None:
     settings = Settings(
         environment="test",
         data_dir=tmp_path,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'pragmas.db'}",
     )
     database = Database(settings)
+    statements: list[str] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(database.engine.sync_engine, "before_cursor_execute", record_statement)
     await database.initialize()
 
     async with database.engine.connect() as connection:
@@ -122,6 +135,7 @@ async def test_database_configures_wal_once_and_connection_safety_pragmas(tmp_pa
     assert journal_mode == "wal"
     assert foreign_keys == 1
     assert busy_timeout == 10_000
+    assert "BEGIN IMMEDIATE" in statements
 
 
 @pytest.mark.asyncio

@@ -54,21 +54,8 @@ jobs:
       - name: Validate Home Assistant startup permissions
         run: |
           test -x plant-care/rootfs/run-plantcare.sh
-          grep -Fq "/run-plantcare.sh rix," plant-care/apparmor.txt
-          grep -Fq "/usr/bin/jq ix," plant-care/apparmor.txt
-          grep -Fq "/opt/venv/bin/alembic rix," plant-care/apparmor.txt
-          grep -Fq "/opt/venv/bin/uvicorn rix," plant-care/apparmor.txt
-          grep -Fq "/usr/bin/supervisord rix," plant-care/apparmor.txt
-          grep -Fq "/usr/sbin/nginx ix," plant-care/apparmor.txt
-          grep -Fq "/usr/local/lib/** mr," plant-care/apparmor.txt
-          grep -Fq "/data/ rw," plant-care/apparmor.txt
-          grep -Fq "/data/** rwk," plant-care/apparmor.txt
-          grep -Fq "/var/lib/nginx/ rw," plant-care/apparmor.txt
-          grep -Fq "/var/lib/nginx/tmp/client_body/ rw," plant-care/apparmor.txt
-          grep -Fq "/var/lib/nginx/tmp/proxy/ rw," plant-care/apparmor.txt
-          grep -Fq "capability dac_override," plant-care/apparmor.txt
-          grep -Fq "capability setgid," plant-care/apparmor.txt
-          grep -Fq "capability setuid," plant-care/apparmor.txt
+          grep -Fq "apparmor: true" plant-care/config.yaml
+          test ! -e plant-care/apparmor.txt
           grep -Fq "nginx -e /dev/stderr" plant-care/rootfs/etc/supervisord.conf
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3

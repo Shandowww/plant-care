@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.5
+
+- Return to Home Assistant's maintained default AppArmor policy instead of
+  replacing it with an incomplete app-specific policy. AppArmor remains enabled,
+  while SQLite can use the persistent `/data` volume and its WAL sidecar files.
+- Verify a real SQLite write transaction during startup so PlantCare cannot
+  report ready when its database is readable but not writable.
+
 ## 0.8.4
 
 - Commit valid Home Assistant readings before the optional stale-sensor action

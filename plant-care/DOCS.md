@@ -55,6 +55,11 @@ Valid readings are committed before stale-sensor actions are evaluated, so the
 core dashboard continues updating if the optional monitoring phase encounters a
 storage problem.
 
+The app keeps Home Assistant's default AppArmor protection rather than replacing
+it with a custom profile. Startup verifies that SQLite can acquire a write
+transaction and create its required WAL sidecars before the health endpoint can
+report ready.
+
 The port mapped to internal `8098` is for the trusted home LAN only. Do not
 port-forward it. Remote use must go through Home Assistant ingress and the
 household's existing secure Home Assistant remote-access method.

@@ -29,6 +29,12 @@ class Database:
             await connection.commit()
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        # Exercise SQLite's real write-lock path before reporting the app ready.
+        # In WAL mode this also verifies that journal/shared-memory sidecars can
+        # be opened under the Home Assistant runtime's storage policy.
+        async with self.engine.connect() as connection:
+            await connection.exec_driver_sql("BEGIN IMMEDIATE")
+            await connection.rollback()
 
     async def close(self) -> None:
         await self.engine.dispose()
