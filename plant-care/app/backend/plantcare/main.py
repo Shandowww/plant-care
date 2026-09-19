@@ -92,7 +92,7 @@ from .schemas import (
     SessionResponse,
 )
 from .simulator import seed_simulator
-from .sync import HomeAssistantStateSource, SyncResult, sync_mapped_readings
+from .sync import HomeAssistantStateSource, NotificationEvent, SyncResult, sync_mapped_readings
 
 logger = structlog.get_logger()
 
@@ -141,8 +141,13 @@ def create_app(
             api_token=cloudflare_token,
         )
     sync_lock = asyncio.Lock()
+    delivery_lock = asyncio.Lock()
 
     async def sync_once() -> SyncResult:
+        async with delivery_lock:
+            return await sync_and_deliver()
+
+    async def sync_and_deliver() -> SyncResult:
         async with sync_lock:
             for attempt in range(3):
                 try:
@@ -165,21 +170,37 @@ def create_app(
                     )
                     await asyncio.sleep(0.25 * (attempt + 1))
         if notifications_enabled and notification_sink is not None:
-            for event in result.notification_events:
+            async with database.session_factory() as delivery_session:
+                pending = list(
+                    (
+                        await delivery_session.scalars(
+                            select(AppSetting).where(AppSetting.key.like("notification.pending.%"))
+                        )
+                    ).all()
+                )
+            for pending_setting in pending:
+                event = NotificationEvent(**pending_setting.typed_value)
                 try:
                     if event.operation == "dismiss":
                         await notification_sink.dismiss_persistent_notification(
                             notification_id=event.notification_id
                         )
-                        continue
-                    ingress_url = await notification_sink.ingress_url()
-                    plant_url = f"{ingress_url}#plants/{quote(event.plant_id, safe='')}"
-                    message = f"{event.message}\n\n[Open this plant in PlantCare]({plant_url})"
-                    await notification_sink.create_persistent_notification(
-                        notification_id=event.notification_id,
-                        title=event.title or "PlantCare sensor warning",
-                        message=message,
-                    )
+                    else:
+                        ingress_url = await notification_sink.ingress_url()
+                        plant_url = f"{ingress_url}#plants/{quote(event.plant_id, safe='')}"
+                        message = f"{event.message}\n\n[Open this plant in PlantCare]({plant_url})"
+                        await notification_sink.create_persistent_notification(
+                            notification_id=event.notification_id,
+                            title=event.title or "PlantCare sensor warning",
+                            message=message,
+                        )
+                    async with database.session_factory() as delivery_session:
+                        saved = await delivery_session.scalar(
+                            select(AppSetting).where(AppSetting.key == pending_setting.key)
+                        )
+                        if saved is not None and saved.typed_value == pending_setting.typed_value:
+                            await delivery_session.delete(saved)
+                            await delivery_session.commit()
                 except Exception as exc:
                     logger.warning(
                         "home_assistant_notification_failed",
@@ -314,7 +335,9 @@ def create_app(
             auth.record_failure(key)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
         auth.failures.pop(key, None)
-        csrf = auth.create_session(response, await auth.session_version(session))
+        csrf = auth.create_session(
+            response, await auth.session_version(session), secure=request.url.scheme == "https"
+        )
         return SessionResponse(
             authenticated=True, surface="lan", actor="Household (LAN)", csrf_token=csrf
         )

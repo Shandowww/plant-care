@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Protocol
@@ -10,7 +10,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import ActionStatus, AuditEvent, CareAction, Plant, Reading
+from .models import ActionStatus, AppSetting, AuditEvent, CareAction, Plant, Reading
 from .schemas import HomeAssistantEntity
 
 logger = structlog.get_logger()
@@ -236,6 +236,7 @@ async def sync_mapped_readings(
     fresh_stale_keys: set[str] = set()
     invalid_readings = 0
     missing_entities = 0
+    unavailable: dict[str, Plant] = {}
     for plant in plants:
         mapping = plant.entity_mapping
         if mapping is None:
@@ -248,10 +249,15 @@ async def sync_mapped_readings(
             if metric in STALE_METRICS:
                 monitored_stale_keys.add(stale_key)
             entity = entities.get(entity_id)
+            normalized = normalize_reading(metric, entity) if entity is not None else None
+            if normalized is None:
+                setattr(plant, metric, None)
+                if metric in {"moisture", "temperature"}:
+                    setattr(plant, f"{metric}_status", "unknown")
+                unavailable[rule_action_key("ha:unavailable:", plant.id, entity_id)] = plant
             if entity is None:
                 missing_entities += 1
                 continue
-            normalized = normalize_reading(metric, entity)
             if normalized is None:
                 invalid_readings += 1
                 continue
@@ -320,6 +326,45 @@ async def sync_mapped_readings(
         raise
 
     notification_events: list[NotificationEvent] = []
+    unavailable_actions = list(
+        (
+            await session.scalars(
+                select(CareAction).where(CareAction.deduplication_key.like("ha:unavailable:%"))
+            )
+        ).all()
+    )
+    unavailable_by_key = {action.deduplication_key: action for action in unavailable_actions}
+    for key, plant in unavailable.items():
+        _, event = await activate_managed_action(
+            session,
+            unavailable_by_key.get(key),
+            plant,
+            ManagedActionSpec(
+                key,
+                "sensor_issue",
+                "Check unavailable sensor",
+                "A mapped sensor is missing or has no valid reading.",
+                "Check the entity mapping, battery, and Home Assistant connection.",
+                1,
+                f"PlantCare: {plant.display_name} sensor unavailable",
+            ),
+            now,
+        )
+        if event:
+            notification_events.append(event)
+    for unavailable_action in unavailable_actions:
+        recovered_plant = next((p for p in plants if p.id == unavailable_action.plant_id), None)
+        if recovered_plant is not None and unavailable_action.deduplication_key not in unavailable:
+            event = complete_managed_action(
+                session,
+                unavailable_action,
+                recovered_plant,
+                now,
+                completed_by="Automatic sensor recovery",
+                reason="sensor_available",
+            )
+            if event:
+                notification_events.append(event)
     try:
         existing_stale_actions = (
             await session.scalars(
@@ -478,7 +523,6 @@ async def sync_mapped_readings(
                                 Reading.observed_at >= now - stale_after,
                             )
                             .order_by(Reading.observed_at.desc())
-                            .limit(200)
                         )
                     ).all()
                 )
@@ -674,6 +718,15 @@ async def sync_mapped_readings(
                 else "good"
             )
 
+    # Persist delivery intent in the same transaction as the action transition.
+    # A newer transition replaces an undelivered notification for the same rule.
+    for event in notification_events:
+        key = f"notification.pending.{event.notification_id}"
+        setting = await session.scalar(select(AppSetting).where(AppSetting.key == key))
+        if setting is None:
+            session.add(AppSetting(key=key, typed_value=asdict(event)))
+        else:
+            setting.typed_value = asdict(event)
     await session.commit()
     return SyncResult(
         plants_checked=len(plants),

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1
+
+- Clear unavailable sensor values and create recoverable sensor warnings.
+- Evaluate the full moisture history window so frequent readings do not suppress prolonged-wet alerts.
+- Persist pending Home Assistant notification sends and dismissals, retrying failed delivery after syncs and restarts.
+- Match LAN session cookie security to the request transport, supporting the bundled HTTP listener and HTTPS proxies.
+
 ## 0.10.0
 
 - Connect live Home Assistant moisture readings to production care actions instead

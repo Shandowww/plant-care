@@ -317,7 +317,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.10.0",
+            version: "0.10.1",
             database: "ready",
             simulator,
             plant_doctor_configured: true,

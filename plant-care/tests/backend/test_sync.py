@@ -281,7 +281,7 @@ def test_plant_created_with_mapping_is_hydrated_immediately(tmp_path: Path) -> N
         assert created.json()["last_reading_at"] == "2026-08-15T08:30:00Z"
 
 
-def test_invalid_reading_does_not_replace_last_good_value(tmp_path: Path) -> None:
+def test_invalid_reading_clears_current_value_and_warns(tmp_path: Path) -> None:
     source = FakeHomeAssistant()
     with production_client(tmp_path, source) as client:
         plant = client.post(
@@ -307,9 +307,113 @@ def test_invalid_reading_does_not_replace_last_good_value(tmp_path: Path) -> Non
         assert result.status_code == 200
         assert result.json()["invalid_readings"] == 1
         refreshed = client.get("/api/v1/plants").json()["plants"][0]
-        assert refreshed["moisture"] == 42
+        assert refreshed["moisture"] is None
+        assert refreshed["state"] == "sensor_issue"
         history = client.get(f"/api/v1/plants/{plant['id']}/readings").json()
         assert len(history["readings"]) == 1
+
+
+def test_missing_sensor_recovers_without_duplicate_notifications(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    with production_client(tmp_path, source, notifier) as client:
+        client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Test plant",
+                "location": "Office",
+                "common_name": "Fern",
+                "environment_type": "indoor",
+                "entity_mapping": {"moisture_entity_id": "sensor.fern_moisture"},
+            },
+        )
+        entity = source.entities.pop(0)
+        for _ in range(2):
+            assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        assert client.get("/api/v1/plants").json()["plants"][0]["state"] == "sensor_issue"
+        assert len(notifier.created) == 1
+        source.entities.append(entity)
+        client.post("/api/v1/home-assistant/sync")
+        assert client.get("/api/v1/plants").json()["plants"][0]["state"] == "good"
+        assert len(notifier.dismissed) == 1
+
+
+def test_notification_send_and_dismiss_retry_across_restart(tmp_path: Path) -> None:
+    class FailingNotifier(FakeHomeAssistantNotifier):
+        async def create_persistent_notification(self, **kwargs: str) -> None:
+            raise RuntimeError("temporary failure")
+
+        async def dismiss_persistent_notification(self, **kwargs: str) -> None:
+            raise RuntimeError("temporary failure")
+
+    source = FakeHomeAssistant()
+    source.entities[2] = source.entities[2].model_copy(update={"state": "9"})
+    with production_client(tmp_path, source, FailingNotifier()) as client:
+        client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Test plant",
+                "location": "Office",
+                "common_name": "Fern",
+                "environment_type": "indoor",
+                "entity_mapping": {"battery_entity_id": "sensor.fern_battery"},
+            },
+        )
+    notifier = FakeHomeAssistantNotifier()
+    with production_client(tmp_path, source, notifier) as client:
+        client.post("/api/v1/home-assistant/sync")
+        assert len(notifier.created) == 1
+    source.entities[2] = source.entities[2].model_copy(update={"state": "90"})
+    with production_client(tmp_path, source, FailingNotifier()) as client:
+        client.post("/api/v1/home-assistant/sync")
+    with production_client(tmp_path, source, notifier) as client:
+        client.post("/api/v1/home-assistant/sync")
+        assert notifier.dismissed == [notifier.created[0]["notification_id"]]
+
+
+@pytest.mark.asyncio
+async def test_frequent_readings_preserve_full_wet_duration(tmp_path: Path) -> None:
+    database = Database(
+        Settings(
+            environment="test",
+            data_dir=tmp_path,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'frequent.db'}",
+        )
+    )
+    await database.initialize()
+    now = datetime.now(UTC)
+    async with database.session_factory() as session:
+        plant = Plant(
+            display_name="Snake",
+            location="Office",
+            common_name="Snake plant",
+            scientific_name="Dracaena trifasciata",
+            environment_type="indoor",
+        )
+        plant.entity_mapping = PlantEntityMapping(moisture_entity_id="sensor.fern_moisture")
+        session.add(plant)
+        await session.flush()
+        for index in range(313):
+            session.add(
+                Reading(
+                    plant_id=plant.id,
+                    entity_id="sensor.fern_moisture",
+                    metric="moisture",
+                    value=60 + index % 2,
+                    unit="%",
+                    observed_at=now - timedelta(minutes=5 * index),
+                    idempotency_key=str(index),
+                )
+            )
+        await session.commit()
+        source = FakeHomeAssistant()
+        source.entities[0] = source.entities[0].model_copy(
+            update={"state": "60", "last_changed": now, "last_updated": now}
+        )
+        result = await sync_mapped_readings(session, source, current_time=now)
+        assert plant.state == "action_needed"
+        assert any("remains wet" in (event.title or "") for event in result.notification_events)
+    await database.close()
 
 
 def test_normalization_rejects_out_of_range_percentage() -> None:

@@ -57,6 +57,38 @@ def test_lan_login_uses_server_session_and_csrf(auth_client: TestClient) -> None
     assert session.json()["authenticated"] is True
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_production_lan_cookie_matches_transport(tmp_path: Path, scheme: str) -> None:
+    settings = Settings(
+        environment="production",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'production.db'}",
+        static_dir=tmp_path / "static",
+    )
+    with TestClient(create_app(settings), base_url=f"{scheme}://192.168.1.20") as client:
+        client.post(
+            "/api/v1/auth/password",
+            headers={"x-plantcare-surface": "ingress"},
+            json={"password": "a secure household password"},
+        )
+        response = client.post(
+            "/api/v1/auth/login",
+            headers={"x-plantcare-surface": "lan"},
+            json={"password": "a secure household password"},
+        )
+        assert response.status_code == 200
+        assert all(
+            ("Secure" in cookie) == (scheme == "https")
+            for cookie in response.headers.get_list("set-cookie")
+        )
+        assert (
+            client.get("/api/v1/auth/session", headers={"x-plantcare-surface": "lan"}).json()[
+                "authenticated"
+            ]
+            is True
+        )
+
+
 def test_invalid_lan_password_is_rejected(auth_client: TestClient) -> None:
     auth_client.post(
         "/api/v1/auth/password",

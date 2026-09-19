@@ -118,7 +118,7 @@ class AuthService:
         count, _ = self.failures.get(key, (0, 0.0))
         self.failures[key] = (min(10, count + 1), time.monotonic())
 
-    def create_session(self, response: Response, version: int) -> str:
+    def create_session(self, response: Response, version: int, *, secure: bool = True) -> str:
         csrf = secrets.token_urlsafe(32)
         token = self.serializer.dumps({"version": version, "nonce": secrets.token_urlsafe(16)})
         response.set_cookie(
@@ -126,7 +126,7 @@ class AuthService:
             token,
             httponly=True,
             samesite="lax",
-            secure=self.settings.environment == "production",
+            secure=secure,
             max_age=MAX_SESSION_AGE_SECONDS,
             path="/",
         )
@@ -135,7 +135,7 @@ class AuthService:
             csrf,
             httponly=False,
             samesite="lax",
-            secure=self.settings.environment == "production",
+            secure=secure,
             max_age=MAX_SESSION_AGE_SECONDS,
             path="/",
         )
