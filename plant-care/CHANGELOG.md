@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0
+
+- Connect live Home Assistant moisture readings to production care actions instead
+  of leaving species guidance display-only.
+- Treat profile values as separate provisional watering-check and prolonged-wet
+  triggers, with optional per-plant overrides in **Edit plant**.
+- Confirm low moisture across three fresh readings, warn after moisture remains
+  above the wet trigger for 24 hours, and use five-point recovery hysteresis to
+  prevent alert flapping.
+- Create deduplicated Home Assistant notifications that deep-link to the plant,
+  then complete the action and dismiss its notification automatically after
+  recovery.
+- Add automatic low-battery actions below 20%, recovered at 25%, and keep
+  temperature ranges explicitly informational.
+- Move temperature and moisture profile interpretation to the backend so every
+  client receives the same thresholds and provenance.
+
 ## 0.9.1
 
 - Prevent Home Assistant's embedded iOS browser from retaining a previous PlantCare frontend after an app update.

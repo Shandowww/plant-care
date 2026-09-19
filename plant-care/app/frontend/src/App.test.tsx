@@ -20,8 +20,16 @@ const plant: Plant = {
   state: "action_needed",
   moisture: 18,
   moisture_status: "low",
+  moisture_check_threshold: 25,
+  moisture_wet_threshold: 60,
+  moisture_check_threshold_override: null,
+  moisture_wet_threshold_override: null,
+  moisture_thresholds_custom: false,
   temperature: 24.2,
   temperature_status: "normal",
+  temperature_minimum: 18,
+  temperature_maximum: 29,
+  care_profile_basis: "golden pothos profile",
   battery: 67,
   illuminance: null,
   photo_updated_at: null,
@@ -309,7 +317,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.9.1",
+            version: "0.10.0",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -439,23 +447,24 @@ describe("portal", () => {
       screen.getByText("Normal temperature range: 18–29°C"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Typical range for golden pothos/),
+      screen.getByText(/golden pothos profile/),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("dialog", { name: "Golden Pothos" }),
     ).not.toBeInTheDocument();
   });
 
-  it("shows the plant-specific soil moisture range without opening plant details", async () => {
+  it("shows the plant-specific moisture triggers without opening plant details", async () => {
     mockApi();
     render(<App />);
     const moisture = await screen.findByRole("button", {
-      name: "Moisture 18 percent; show recommended range",
+      name: "Moisture 18 percent; show monitoring thresholds",
     });
     fireEvent.click(moisture);
     expect(
-      screen.getByText("Suggested soil-moisture sensor band: 25–60%"),
+      screen.getByText("Watering check at or below 25%"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Prolonged-wet warning at or above 60%/)).toBeInTheDocument();
     expect(
       screen.getByText(/readings vary by sensor, substrate, and placement/),
     ).toBeInTheDocument();
@@ -770,6 +779,45 @@ describe("portal", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("saves custom moisture monitoring thresholds", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Golden Pothos details" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit plant" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Customize thresholds for this plant",
+      }),
+    );
+    fireEvent.change(screen.getByLabelText(/Watering-check trigger/), {
+      target: { value: "22" },
+    });
+    fireEvent.change(screen.getByLabelText(/Prolonged-wet trigger/), {
+      target: { value: "58" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "api/v1/plants/plant-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining(
+            '"moisture_check_threshold_override":22',
+          ),
+        }),
+      ),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "api/v1/plants/plant-1",
+      expect.objectContaining({
+        body: expect.stringContaining('"moisture_wet_threshold_override":58'),
+      }),
+    );
+  });
+
   it("navigates to the queue and completes an action", async () => {
     mockApi();
     render(<App />);
@@ -790,7 +838,7 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: /Care queue/ }));
     await screen.findByRole("heading", { name: "Check soil moisture" });
-    expect(screen.getByText(/Sensor-managed/)).toBeInTheDocument();
+    expect(screen.getByText(/Monitoring-managed/)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Mark done" }),
     ).not.toBeInTheDocument();

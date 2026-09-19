@@ -413,6 +413,175 @@ def test_unchanged_sensor_creates_notification_and_recovers(tmp_path: Path) -> N
         assert notifier.dismissed == [notifier.created[0]["notification_id"]]
 
 
+def test_three_low_readings_create_action_notification_and_recover(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    now = datetime.now(UTC)
+    source.entities[0] = source.entities[0].model_copy(
+        update={
+            "state": "9",
+            "last_changed": now - timedelta(minutes=10),
+            "last_updated": now - timedelta(minutes=10),
+        }
+    )
+
+    with production_client(tmp_path, source, notifier) as client:
+        plant = client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Bedroom Snake Plant",
+                "location": "Bedroom",
+                "common_name": "Snake plant",
+                "scientific_name": "Dracaena trifasciata",
+                "environment_type": "indoor",
+                "entity_mapping": {"moisture_entity_id": "sensor.fern_moisture"},
+            },
+        ).json()
+        assert plant["state"] == "watch"
+        assert plant["moisture_check_threshold"] == 10
+        assert client.get("/api/v1/actions").json()["actions"] == []
+
+        for minutes, value in ((5, "8"), (0, "6")):
+            observed_at = now - timedelta(minutes=minutes)
+            source.entities[0] = source.entities[0].model_copy(
+                update={
+                    "state": value,
+                    "last_changed": observed_at,
+                    "last_updated": observed_at,
+                }
+            )
+            synchronized = client.post("/api/v1/home-assistant/sync")
+            assert synchronized.status_code == 200
+
+        refreshed = client.get("/api/v1/plants").json()["plants"][0]
+        assert refreshed["state"] == "action_needed"
+        assert refreshed["moisture_status"] == "low"
+        actions = client.get("/api/v1/actions").json()["actions"]
+        assert len(actions) == 1
+        assert actions[0]["type"] == "low_moisture"
+        assert actions[0]["title"] == "Check soil moisture"
+        assert "latest 3 readings" in actions[0]["observation"]
+        assert "two or three root-zone spots" in actions[0]["recommendation"]
+        assert len(notifier.created) == 1
+        assert f"#plants/{plant['id']}" in notifier.created[0]["message"]
+
+        recovered_at = now + timedelta(minutes=5)
+        source.entities[0] = source.entities[0].model_copy(
+            update={
+                "state": "18",
+                "last_changed": recovered_at,
+                "last_updated": recovered_at,
+            }
+        )
+        recovered = client.post("/api/v1/home-assistant/sync")
+        assert recovered.status_code == 200
+        completed = client.get("/api/v1/actions").json()["actions"][0]
+        assert completed["status"] == "completed"
+        assert completed["completed_by"] == "Automatic moisture recovery"
+        assert client.get("/api/v1/plants").json()["plants"][0]["state"] == "good"
+        assert notifier.dismissed == [notifier.created[0]["notification_id"]]
+
+
+def test_prolonged_wet_readings_create_drying_action(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    now = datetime.now(UTC)
+    source.entities[0] = source.entities[0].model_copy(
+        update={
+            "state": "60",
+            "last_changed": now - timedelta(hours=26),
+            "last_updated": now - timedelta(hours=26),
+        }
+    )
+
+    with production_client(tmp_path, source, notifier) as client:
+        created = client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Bedroom Snake Plant",
+                "location": "Bedroom",
+                "common_name": "Snake plant",
+                "scientific_name": "Dracaena trifasciata",
+                "environment_type": "indoor",
+                "entity_mapping": {"moisture_entity_id": "sensor.fern_moisture"},
+            },
+        )
+        assert created.status_code == 201
+
+        for hours, value in ((25, "61"), (0, "62")):
+            observed_at = now - timedelta(hours=hours)
+            source.entities[0] = source.entities[0].model_copy(
+                update={
+                    "state": value,
+                    "last_changed": observed_at,
+                    "last_updated": observed_at,
+                }
+            )
+            assert client.post("/api/v1/home-assistant/sync").status_code == 200
+
+        refreshed = client.get("/api/v1/plants").json()["plants"][0]
+        assert refreshed["state"] == "action_needed"
+        assert refreshed["moisture_status"] == "high"
+        action = client.get("/api/v1/actions").json()["actions"][0]
+        assert action["type"] == "prolonged_wet"
+        assert action["title"] == "Help soil dry safely"
+        assert "at least 26 hours" in action["observation"]
+        assert len(notifier.created) == 1
+
+        recovered_at = now + timedelta(minutes=5)
+        source.entities[0] = source.entities[0].model_copy(
+            update={
+                "state": "35",
+                "last_changed": recovered_at,
+                "last_updated": recovered_at,
+            }
+        )
+        assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        completed = client.get("/api/v1/actions").json()["actions"][0]
+        assert completed["status"] == "completed"
+        assert completed["completed_by"] == "Automatic moisture recovery"
+
+
+def test_low_battery_creates_action_and_recovers_with_hysteresis(tmp_path: Path) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    now = datetime.now(UTC)
+    source.entities[2] = source.entities[2].model_copy(
+        update={"state": "9", "last_changed": now, "last_updated": now}
+    )
+
+    with production_client(tmp_path, source, notifier) as client:
+        plant = client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Bedroom Snake Plant",
+                "location": "Bedroom",
+                "common_name": "Snake plant",
+                "scientific_name": "Dracaena trifasciata",
+                "environment_type": "indoor",
+                "entity_mapping": {"battery_entity_id": "sensor.fern_battery"},
+            },
+        ).json()
+        assert plant["state"] == "action_needed"
+        action = client.get("/api/v1/actions").json()["actions"][0]
+        assert action["type"] == "low_battery"
+        assert action["title"] == "Replace sensor battery"
+        assert len(notifier.created) == 1
+
+        recovered_at = now + timedelta(minutes=5)
+        source.entities[2] = source.entities[2].model_copy(
+            update={
+                "state": "25",
+                "last_changed": recovered_at,
+                "last_updated": recovered_at,
+            }
+        )
+        assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        completed = client.get("/api/v1/actions").json()["actions"][0]
+        assert completed["status"] == "completed"
+        assert completed["completed_by"] == "Automatic battery recovery"
+
+
 async def test_home_assistant_metadata_includes_all_areas() -> None:
     class TemplateResponse:
         text = """{

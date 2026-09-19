@@ -22,9 +22,17 @@ MAPPING_FIELDS = {
     "battery": "battery_entity_id",
     "illuminance": "illuminance_entity_id",
 }
-CRITICAL_METRICS = {"moisture", "temperature"}
 STALE_METRICS = {"moisture", "temperature", "illuminance"}
 STALE_ACTION_PREFIX = "ha:stale:"
+LOW_MOISTURE_ACTION_PREFIX = "ha:moisture-low:"
+WET_MOISTURE_ACTION_PREFIX = "ha:moisture-wet:"
+LOW_BATTERY_ACTION_PREFIX = "ha:battery-low:"
+LOW_MOISTURE_CONFIRMATIONS = 3
+WET_MOISTURE_CONFIRMATIONS = 3
+WET_MOISTURE_DURATION = timedelta(hours=24)
+MOISTURE_RECOVERY_HYSTERESIS = 5
+LOW_BATTERY_THRESHOLD = 20
+BATTERY_RECOVERY_THRESHOLD = 25
 METRIC_LABELS = {
     "moisture": "moisture",
     "temperature": "temperature",
@@ -59,6 +67,115 @@ class NotificationEvent:
 class NormalizedReading:
     value: float
     unit: str | None
+
+
+@dataclass(frozen=True)
+class ManagedActionSpec:
+    key: str
+    action_type: str
+    title: str
+    observation: str
+    recommendation: str
+    priority: int
+    notification_title: str
+
+
+async def activate_managed_action(
+    session: AsyncSession,
+    action: CareAction | None,
+    plant: Plant,
+    spec: ManagedActionSpec,
+    now: datetime,
+) -> tuple[CareAction, NotificationEvent | None]:
+    should_notify = action is None or action.status == ActionStatus.COMPLETED.value
+    if action is None:
+        action = CareAction(
+            plant_id=plant.id,
+            type=spec.action_type,
+            title=spec.title,
+            observation=spec.observation,
+            recommendation=spec.recommendation,
+            status=ActionStatus.OPEN.value,
+            priority=spec.priority,
+            due_at=now + timedelta(hours=24),
+            deduplication_key=spec.key,
+        )
+        session.add(action)
+        await session.flush()
+        session.add(
+            AuditEvent(
+                actor="PlantCare monitoring rules",
+                event_type="care_rule_action_created",
+                object_type="care_action",
+                object_id=action.id,
+                new_json={"status": action.status, "rule": spec.action_type},
+            )
+        )
+    elif action.status == ActionStatus.COMPLETED.value:
+        action.status = ActionStatus.OPEN.value
+        action.completed_at = None
+        action.completed_by = None
+        action.snoozed_until = None
+        action.due_at = now + timedelta(hours=24)
+        session.add(
+            AuditEvent(
+                actor="PlantCare monitoring rules",
+                event_type="action_reopened",
+                object_type="care_action",
+                object_id=action.id,
+                old_json={"status": ActionStatus.COMPLETED.value},
+                new_json={"status": action.status, "rule": spec.action_type},
+            )
+        )
+    action.observation = spec.observation
+    action.recommendation = spec.recommendation
+    if not should_notify:
+        return action, None
+    return action, NotificationEvent(
+        operation="create",
+        notification_id=notification_id_for(spec.key),
+        plant_id=plant.id,
+        plant_name=plant.display_name,
+        title=spec.notification_title,
+        message=f"{spec.observation}\n\n{spec.recommendation}",
+    )
+
+
+def complete_managed_action(
+    session: AsyncSession,
+    action: CareAction | None,
+    plant: Plant,
+    now: datetime,
+    *,
+    completed_by: str,
+    reason: str,
+) -> NotificationEvent | None:
+    if action is None or action.status not in {
+        ActionStatus.OPEN.value,
+        ActionStatus.SNOOZED.value,
+    }:
+        return None
+    old_status = action.status
+    action.status = ActionStatus.COMPLETED.value
+    action.completed_at = now
+    action.completed_by = completed_by
+    action.snoozed_until = None
+    session.add(
+        AuditEvent(
+            actor="PlantCare monitoring rules",
+            event_type="action_auto_completed",
+            object_type="care_action",
+            object_id=action.id,
+            old_json={"status": old_status},
+            new_json={"status": action.status, "reason": reason},
+        )
+    )
+    return NotificationEvent(
+        operation="dismiss",
+        notification_id=notification_id_for(action.deduplication_key),
+        plant_id=plant.id,
+        plant_name=plant.display_name,
+    )
 
 
 def normalize_reading(metric: str, entity: HomeAssistantEntity) -> NormalizedReading | None:
@@ -163,7 +280,6 @@ async def sync_mapped_readings(
         )
 
     readings_added = 0
-    plants_with_critical_data: set[str] = set()
     latest_by_plant: dict[str, datetime] = {}
     for plant, metric, entity, normalized, observed_at, idempotency_key in pending:
         setattr(plant, metric, normalized.value)
@@ -171,8 +287,6 @@ async def sync_mapped_readings(
             plant.moisture_status = "normal"
         if metric == "temperature" and plant.temperature_status == "unknown":
             plant.temperature_status = "normal"
-        if metric in CRITICAL_METRICS:
-            plants_with_critical_data.add(plant.id)
         latest_by_plant[plant.id] = max(latest_by_plant.get(plant.id, observed_at), observed_at)
         if idempotency_key in existing_keys:
             continue
@@ -324,6 +438,209 @@ async def sync_mapped_readings(
                 )
             )
 
+    managed_types = {"low_moisture", "prolonged_wet", "low_battery"}
+    existing_managed_actions = (
+        await session.scalars(select(CareAction).where(CareAction.type.in_(managed_types)))
+    ).all()
+    managed_actions_by_key = {
+        action.deduplication_key: action for action in existing_managed_actions
+    }
+    current_managed_keys: set[str] = set()
+    plants_by_id = {plant.id: plant for plant in plants}
+    for plant in plants:
+        mapping = plant.entity_mapping
+        if mapping is None:
+            continue
+
+        moisture_entity_id = mapping.moisture_entity_id
+        if moisture_entity_id:
+            low_key = rule_action_key(LOW_MOISTURE_ACTION_PREFIX, plant.id, moisture_entity_id)
+            wet_key = rule_action_key(WET_MOISTURE_ACTION_PREFIX, plant.id, moisture_entity_id)
+            current_managed_keys.update((low_key, wet_key))
+            moisture_entity = entities.get(moisture_entity_id)
+            moisture_value = (
+                normalize_reading("moisture", moisture_entity)
+                if moisture_entity is not None
+                else None
+            )
+            moisture_stale = (
+                stale_action_key(plant.id, "moisture", moisture_entity_id) in stale_readings
+            )
+            if moisture_value is not None and not moisture_stale:
+                recent_moisture = list(
+                    (
+                        await session.scalars(
+                            select(Reading)
+                            .where(
+                                Reading.plant_id == plant.id,
+                                Reading.entity_id == moisture_entity_id,
+                                Reading.metric == "moisture",
+                                Reading.observed_at >= now - stale_after,
+                            )
+                            .order_by(Reading.observed_at.desc())
+                            .limit(200)
+                        )
+                    ).all()
+                )
+                low_threshold = plant.moisture_check_threshold
+                wet_threshold = plant.moisture_wet_threshold
+                low_confirmed = len(recent_moisture) >= LOW_MOISTURE_CONFIRMATIONS and all(
+                    reading.value <= low_threshold
+                    for reading in recent_moisture[:LOW_MOISTURE_CONFIRMATIONS]
+                )
+                high_streak = []
+                for reading in recent_moisture:
+                    if reading.value < wet_threshold:
+                        break
+                    high_streak.append(reading)
+                wet_confirmed = (
+                    len(high_streak) >= WET_MOISTURE_CONFIRMATIONS
+                    and now - as_utc(high_streak[-1].observed_at) >= WET_MOISTURE_DURATION
+                )
+
+                if low_confirmed:
+                    plant.moisture_status = "low"
+                    spec = ManagedActionSpec(
+                        key=low_key,
+                        action_type="low_moisture",
+                        title="Check soil moisture",
+                        observation=(
+                            f"The latest {LOW_MOISTURE_CONFIRMATIONS} readings are at or below "
+                            f"this plant's {low_threshold:g}% watering-check trigger; the current "
+                            f"reading is {moisture_value.value:g}%."
+                        ),
+                        recommendation=(
+                            "Check two or three root-zone spots. Water slowly and evenly only if "
+                            "those checks confirm the mix is dry, then let excess water drain."
+                        ),
+                        priority=1,
+                        notification_title=f"PlantCare: check {plant.display_name}",
+                    )
+                    action, event = await activate_managed_action(
+                        session, managed_actions_by_key.get(low_key), plant, spec, now
+                    )
+                    managed_actions_by_key[low_key] = action
+                    if event:
+                        notification_events.append(event)
+                elif moisture_value.value >= (low_threshold + MOISTURE_RECOVERY_HYSTERESIS):
+                    event = complete_managed_action(
+                        session,
+                        managed_actions_by_key.get(low_key),
+                        plant,
+                        now,
+                        completed_by="Automatic moisture recovery",
+                        reason="moisture_recovered",
+                    )
+                    if event:
+                        notification_events.append(event)
+
+                if wet_confirmed:
+                    plant.moisture_status = "high"
+                    wet_hours = max(
+                        int((now - as_utc(high_streak[-1].observed_at)).total_seconds() // 3600),
+                        24,
+                    )
+                    spec = ManagedActionSpec(
+                        key=wet_key,
+                        action_type="prolonged_wet",
+                        title="Help soil dry safely",
+                        observation=(
+                            f"Soil moisture has remained at or above this plant's "
+                            f"{wet_threshold:g}% prolonged-wet trigger for at least {wet_hours} "
+                            "hours."
+                        ),
+                        recommendation=(
+                            "Pause watering, empty any standing water, check drainage, and improve "
+                            "appropriate light or airflow. Inspect roots before repotting."
+                        ),
+                        priority=1,
+                        notification_title=f"PlantCare: {plant.display_name} remains wet",
+                    )
+                    action, event = await activate_managed_action(
+                        session, managed_actions_by_key.get(wet_key), plant, spec, now
+                    )
+                    managed_actions_by_key[wet_key] = action
+                    if event:
+                        notification_events.append(event)
+                elif moisture_value.value <= (wet_threshold - MOISTURE_RECOVERY_HYSTERESIS):
+                    event = complete_managed_action(
+                        session,
+                        managed_actions_by_key.get(wet_key),
+                        plant,
+                        now,
+                        completed_by="Automatic moisture recovery",
+                        reason="soil_dried_below_wet_threshold",
+                    )
+                    if event:
+                        notification_events.append(event)
+
+                if not low_confirmed and not wet_confirmed:
+                    if moisture_value.value <= low_threshold:
+                        plant.moisture_status = "low"
+                    elif moisture_value.value >= wet_threshold:
+                        plant.moisture_status = "high"
+                    else:
+                        plant.moisture_status = "normal"
+
+        battery_entity_id = mapping.battery_entity_id
+        if battery_entity_id:
+            battery_key = rule_action_key(LOW_BATTERY_ACTION_PREFIX, plant.id, battery_entity_id)
+            current_managed_keys.add(battery_key)
+            battery_entity = entities.get(battery_entity_id)
+            battery_value = (
+                normalize_reading("battery", battery_entity) if battery_entity is not None else None
+            )
+            if battery_value is not None and battery_value.value < LOW_BATTERY_THRESHOLD:
+                spec = ManagedActionSpec(
+                    key=battery_key,
+                    action_type="low_battery",
+                    title="Replace sensor battery",
+                    observation=(
+                        f"The mapped sensor battery is {battery_value.value:g}%, below the "
+                        f"{LOW_BATTERY_THRESHOLD}% warning threshold."
+                    ),
+                    recommendation=(
+                        "Replace or recharge the sensor battery soon, then confirm that fresh "
+                        "readings continue to arrive."
+                    ),
+                    priority=2,
+                    notification_title=f"PlantCare: {plant.display_name} sensor battery is low",
+                )
+                action, event = await activate_managed_action(
+                    session, managed_actions_by_key.get(battery_key), plant, spec, now
+                )
+                managed_actions_by_key[battery_key] = action
+                if event:
+                    notification_events.append(event)
+            elif battery_value is not None and battery_value.value >= BATTERY_RECOVERY_THRESHOLD:
+                event = complete_managed_action(
+                    session,
+                    managed_actions_by_key.get(battery_key),
+                    plant,
+                    now,
+                    completed_by="Automatic battery recovery",
+                    reason="battery_recovered",
+                )
+                if event:
+                    notification_events.append(event)
+
+    for action in existing_managed_actions:
+        if action.deduplication_key in current_managed_keys:
+            continue
+        recovered_plant = plants_by_id.get(action.plant_id)
+        if recovered_plant is None:
+            continue
+        event = complete_managed_action(
+            session,
+            action,
+            recovered_plant,
+            now,
+            completed_by="Automatic mapping recovery",
+            reason="sensor_mapping_removed",
+        )
+        if event:
+            notification_events.append(event)
+
     await session.flush()
     active_actions = (
         await session.scalars(
@@ -332,14 +649,11 @@ async def sync_mapped_readings(
             )
         )
     ).all()
-    active_sensor_issue_plants = {
-        action.plant_id for action in active_actions if action.type == "sensor_issue"
-    }
     for plant in plants:
-        if plant.id in active_sensor_issue_plants:
+        remaining = [action for action in active_actions if action.plant_id == plant.id]
+        if any(action.type == "sensor_issue" for action in remaining):
             plant.state = "sensor_issue"
-        elif plant.id in plants_with_critical_data and plant.state == "sensor_issue":
-            remaining = [action for action in active_actions if action.plant_id == plant.id]
+        else:
             overdue = any(
                 action.due_at is not None
                 and (
@@ -350,7 +664,15 @@ async def sync_mapped_readings(
                 < now
                 for action in remaining
             )
-            plant.state = "overdue" if overdue else "action_needed" if remaining else "good"
+            plant.state = (
+                "overdue"
+                if overdue
+                else "action_needed"
+                if remaining
+                else "watch"
+                if plant.moisture_status in {"low", "high"}
+                else "good"
+            )
 
     await session.commit()
     return SyncResult(
@@ -365,6 +687,15 @@ async def sync_mapped_readings(
 def stale_action_key(plant_id: str, metric: str, entity_id: str) -> str:
     entity_digest = sha256(entity_id.encode()).hexdigest()[:16]
     return f"{STALE_ACTION_PREFIX}{plant_id}:{metric}:{entity_digest}"
+
+
+def rule_action_key(prefix: str, plant_id: str, entity_id: str) -> str:
+    entity_digest = sha256(entity_id.encode()).hexdigest()[:16]
+    return f"{prefix}{plant_id}:{entity_digest}"
+
+
+def as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
 def notification_id_for(action_key: str) -> str:

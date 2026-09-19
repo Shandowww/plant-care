@@ -87,16 +87,19 @@ treated as a broken mapping, not as permission to erase the plant or its history
 The simulator's **Simulate confirmed watering** control demonstrates automatic
 completion of a low-moisture action after confirmed recovery.
 
-In the Home Assistant app, mapped moisture, temperature, and illuminance values
-that remain unchanged for 72 hours create a sensor issue and a persistent Home
-Assistant notification with a direct link to that plant. Both the threshold and
-notification delivery are configurable in the app options. Battery values are
-excluded because slow battery changes are expected.
+In the Home Assistant app, three fresh readings at or below a plant's provisional
+watering-check trigger create a manual soil-check action. Moisture that remains
+above the prolonged-wet trigger for 24 hours creates a drying check, and sensor
+battery below 20% creates a replacement action. Each action sends one persistent
+Home Assistant notification with a direct link to the plant and completes after
+sensor recovery. Separately, mapped moisture, temperature, and illuminance values
+that remain unchanged for 72 hours create a non-responsive-sensor warning.
 
-The moisture and temperature tiles on each plant card are expandable. They show
-species-aware guidance where available and labelled indoor/outdoor fallbacks
-otherwise. Soil-moisture percentages depend on the sensor, substrate, and probe
-placement, so use the displayed moisture range as trend guidance.
+The moisture and temperature tiles on each plant card are expandable. Moisture
+shows separate watering-check and prolonged-wet triggers rather than presenting
+the full interval as a universal healthy range. Species defaults are provisional
+and can be customized per plant under **Edit plant** because sensor calibration,
+substrate, and probe placement affect the percentage.
 
 Plant Doctor receives the plant's saved friendly, common, and scientific names
 plus the matching care profile. Results display that identity explicitly; the

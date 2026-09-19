@@ -79,6 +79,13 @@ const urgencyOrder: Record<PlantState, number> = {
   good: 4,
 };
 
+const autoManagedActionTypes = new Set([
+  "low_moisture",
+  "prolonged_wet",
+  "low_battery",
+  "sensor_issue",
+]);
+
 const viewTitles: Record<View, string> = {
   dashboard: "Your plant overview",
   actions: "Care queue",
@@ -1129,8 +1136,7 @@ function ActionSection({
       ) : (
         <div className="action-list">
           {actions.map((action) => {
-            const sensorManaged =
-              action.type === "low_moisture" || action.type === "sensor_issue";
+            const sensorManaged = autoManagedActionTypes.has(action.type);
             const aiRecommended = action.type === "ai_recommendation";
             return (
               <article
@@ -1152,7 +1158,7 @@ function ActionSection({
                   <strong>{action.recommendation}</strong>
                   {sensorManaged && action.status !== "completed" && (
                     <small className="automatic-note">
-                      Sensor-managed: closes automatically when the condition
+                      Monitoring-managed: closes automatically when the condition
                       recovers.
                     </small>
                   )}
@@ -1241,11 +1247,12 @@ function ActionHistory({
   );
   const labels: Record<ActionHistoryEvent["event_type"], string> = {
     action_completed: "Marked done manually",
-    action_auto_completed: "Completed automatically after sensor recovery",
+    action_auto_completed: "Completed automatically after recovery",
     action_snoozed: "Snoozed",
     action_reopened: "Reopened",
     ai_recommendation_created: "AI recommendation added",
     sensor_issue_created: "Sensor warning created",
+    care_rule_action_created: "Monitoring action created",
   };
   return (
     <section className="action-section history-section">
@@ -1767,8 +1774,7 @@ function PlantDetailDialog({
         <section className="detail-actions">
           <h3>Care actions</h3>
           {openActions.map((action) => {
-            const sensorManaged =
-              action.type === "low_moisture" || action.type === "sensor_issue";
+            const sensorManaged = autoManagedActionTypes.has(action.type);
             return (
               <div className="detail-action-row" key={action.id}>
                 <div>
@@ -1781,7 +1787,7 @@ function PlantDetailDialog({
                   <p>{action.recommendation}</p>
                   {sensorManaged && (
                     <small>
-                      Sensor-managed: closes automatically when the condition
+                      Monitoring-managed: closes automatically when the condition
                       recovers.
                     </small>
                   )}
@@ -2614,6 +2620,8 @@ function AddPlantDialog({
     common_name: "",
     scientific_name: null,
     environment_type: "indoor",
+    moisture_check_threshold_override: null,
+    moisture_wet_threshold_override: null,
   });
   const [mapping, setMapping] = useState<PlantEntityMapping>(emptyMapping);
   const [entities, setEntities] = useState<HomeAssistantEntity[]>([]);
@@ -2952,6 +2960,9 @@ function EditPlantDialog({
     common_name: plant.common_name,
     scientific_name: plant.scientific_name,
     environment_type: plant.environment_type as PlantCreate["environment_type"],
+    moisture_check_threshold_override:
+      plant.moisture_check_threshold_override,
+    moisture_wet_threshold_override: plant.moisture_wet_threshold_override,
   });
   const [areas, setAreas] = useState<string[]>([plant.location]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -2994,6 +3005,17 @@ function EditPlantDialog({
       : (fallbackImage?.alt ?? `${plant.display_name} photo placeholder`);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const checkThreshold =
+      form.moisture_check_threshold_override ??
+      plant.moisture_check_threshold;
+    const wetThreshold =
+      form.moisture_wet_threshold_override ?? plant.moisture_wet_threshold;
+    if (checkThreshold >= wetThreshold) {
+      setMessage(
+        "The watering-check trigger must be lower than the prolonged-wet trigger.",
+      );
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -3193,6 +3215,93 @@ function EditPlantDialog({
               <option value="outdoor_exposed">Outdoor, exposed</option>
             </select>
           </label>
+          <fieldset className="monitoring-thresholds">
+            <legend>Moisture monitoring</legend>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={
+                  form.moisture_check_threshold_override !== null ||
+                  form.moisture_wet_threshold_override !== null
+                }
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    moisture_check_threshold_override: event.target.checked
+                      ? plant.moisture_check_threshold
+                      : null,
+                    moisture_wet_threshold_override: event.target.checked
+                      ? plant.moisture_wet_threshold
+                      : null,
+                  })
+                }
+              />
+              Customize thresholds for this plant
+            </label>
+            <div className="threshold-grid">
+              <label>
+                Watering-check trigger
+                <span className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    disabled={
+                      form.moisture_check_threshold_override === null &&
+                      form.moisture_wet_threshold_override === null
+                    }
+                    value={
+                      form.moisture_check_threshold_override ??
+                      plant.moisture_check_threshold
+                    }
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        moisture_check_threshold_override: Number(
+                          event.target.value,
+                        ),
+                      })
+                    }
+                  />
+                  <span>% or below</span>
+                </span>
+              </label>
+              <label>
+                Prolonged-wet trigger
+                <span className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    disabled={
+                      form.moisture_check_threshold_override === null &&
+                      form.moisture_wet_threshold_override === null
+                    }
+                    value={
+                      form.moisture_wet_threshold_override ??
+                      plant.moisture_wet_threshold
+                    }
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        moisture_wet_threshold_override: Number(
+                          event.target.value,
+                        ),
+                      })
+                    }
+                  />
+                  <span>% for 24h</span>
+                </span>
+              </label>
+            </div>
+            <small>
+              {plant.care_profile_basis}. Low moisture opens a check after
+              three fresh readings; prolonged wetness opens a drying check
+              after 24 hours. Confirm the soil manually before watering.
+            </small>
+          </fieldset>
           {message && (
             <p className="inline-error" role="alert">
               {message}

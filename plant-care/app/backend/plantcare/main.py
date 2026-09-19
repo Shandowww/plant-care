@@ -96,7 +96,12 @@ from .sync import HomeAssistantStateSource, SyncResult, sync_mapped_readings
 
 logger = structlog.get_logger()
 
-AUTO_MANAGED_ACTION_TYPES = {"low_moisture", "sensor_issue"}
+AUTO_MANAGED_ACTION_TYPES = {
+    "low_moisture",
+    "prolonged_wet",
+    "low_battery",
+    "sensor_issue",
+}
 
 
 def database_error_detail(exc: Exception) -> str:
@@ -374,12 +379,8 @@ def create_app(
         plants = []
         for plant, action_title in rows:
             effective_state = plant.state
-            if (
-                action_title is None
-                and plant.state in {"action_needed", "overdue"}
-                and plant.moisture_status != "low"
-            ):
-                effective_state = "good"
+            if action_title is None and plant.state in {"action_needed", "overdue"}:
+                effective_state = "watch" if plant.moisture_status in {"low", "high"} else "good"
             plants.append(
                 PlantSummary.model_validate(plant).model_copy(
                     update={
@@ -523,10 +524,17 @@ def create_app(
             common_name=payload.common_name.strip(),
             scientific_name=(payload.scientific_name or "").strip() or None,
             environment_type=payload.environment_type,
+            moisture_check_threshold_override=payload.moisture_check_threshold_override,
+            moisture_wet_threshold_override=payload.moisture_wet_threshold_override,
             state="sensor_issue",
             moisture_status="unknown",
             temperature_status="unknown",
         )
+        if plant.moisture_check_threshold >= plant.moisture_wet_threshold:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The watering-check trigger must be lower than the prolonged-wet trigger.",
+            )
         session.add(plant)
         await session.flush()
         if payload.entity_mapping is not None:
@@ -575,12 +583,19 @@ def create_app(
             "common_name": plant.common_name,
             "scientific_name": plant.scientific_name,
             "environment_type": plant.environment_type,
+            "moisture_check_threshold_override": plant.moisture_check_threshold_override,
+            "moisture_wet_threshold_override": plant.moisture_wet_threshold_override,
         }
         changes = payload.model_dump(exclude_unset=True)
         for field, value in changes.items():
             if isinstance(value, str):
                 value = value.strip() or None
             setattr(plant, field, value)
+        if plant.moisture_check_threshold >= plant.moisture_wet_threshold:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The watering-check trigger must be lower than the prolonged-wet trigger.",
+            )
         session.add(
             AuditEvent(
                 actor=identity.actor,
@@ -785,9 +800,9 @@ def create_app(
                         profile.temperature_minimum,
                         profile.temperature_maximum,
                     ),
-                    soil_moisture_sensor_range_percent=(
-                        profile.moisture_minimum,
-                        profile.moisture_maximum,
+                    moisture_monitoring_thresholds_percent=(
+                        plant.moisture_check_threshold,
+                        plant.moisture_wet_threshold,
                     ),
                     care_profile_basis=profile.basis,
                     moisture_history=summarize_moisture_history(
@@ -799,8 +814,8 @@ def create_app(
                             for reading in moisture_readings
                         ],
                         now=datetime.now(UTC),
-                        lower_percent=profile.moisture_minimum,
-                        upper_percent=profile.moisture_maximum,
+                        lower_percent=plant.moisture_check_threshold,
+                        upper_percent=plant.moisture_wet_threshold,
                     ),
                     history=tuple(
                         PlantDoctorHistoryContext(
@@ -1266,8 +1281,8 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    "This action is managed by sensor recovery and cannot be marked done "
-                    "manually. Snooze it, or resolve the underlying sensor condition."
+                    "This action is managed automatically by monitoring recovery and cannot "
+                    "be marked done manually. Snooze it, or resolve the underlying condition."
                 ),
             )
         if action.status != ActionStatus.COMPLETED.value:

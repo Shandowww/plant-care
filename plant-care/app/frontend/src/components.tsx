@@ -31,146 +31,6 @@ const visualVariant: Record<string, string> = {
   "Peace Lily": "flower",
 };
 
-type TemperatureProfile = { minimum: number; maximum: number; note: string };
-type MoistureProfile = { minimum: number; maximum: number; note: string };
-
-const speciesTemperatureProfiles: Record<string, TemperatureProfile> = {
-  "epipremnum aureum": {
-    minimum: 18,
-    maximum: 29,
-    note: "Typical range for golden pothos",
-  },
-  "monstera deliciosa": {
-    minimum: 16,
-    maximum: 29,
-    note: "Typical range for Monstera deliciosa",
-  },
-  "olea europaea": {
-    minimum: 10,
-    maximum: 30,
-    note: "Broad typical range for a potted olive tree",
-  },
-  "dracaena trifasciata": {
-    minimum: 16,
-    maximum: 29,
-    note: "Typical range for a snake plant",
-  },
-  spathiphyllum: {
-    minimum: 20,
-    maximum: 29,
-    note: "Typical range for a peace lily",
-  },
-  "euphorbia tithymaloides": {
-    minimum: 16,
-    maximum: 29,
-    note: "Typical range for devil's backbone",
-  },
-  "euphorbia leuconeura": {
-    minimum: 15,
-    maximum: 30,
-    note: "Typical range for Madagascar jewel",
-  },
-};
-
-const speciesMoistureProfiles: Record<string, MoistureProfile> = {
-  "epipremnum aureum": {
-    minimum: 25,
-    maximum: 60,
-    note: "Typical sensor guidance for golden pothos",
-  },
-  "monstera deliciosa": {
-    minimum: 30,
-    maximum: 65,
-    note: "Typical sensor guidance for Monstera deliciosa",
-  },
-  "olea europaea": {
-    minimum: 15,
-    maximum: 45,
-    note: "Typical sensor guidance for a potted olive tree",
-  },
-  "dracaena trifasciata": {
-    minimum: 10,
-    maximum: 45,
-    note: "Typical sensor guidance for a snake plant",
-  },
-  spathiphyllum: {
-    minimum: 35,
-    maximum: 70,
-    note: "Typical sensor guidance for a peace lily",
-  },
-  "euphorbia tithymaloides": {
-    minimum: 15,
-    maximum: 45,
-    note: "Typical sensor guidance for devil's backbone",
-  },
-  "euphorbia leuconeura": {
-    minimum: 20,
-    maximum: 50,
-    note: "Typical sensor guidance for Madagascar jewel",
-  },
-};
-
-function temperatureProfile(plant: Plant): TemperatureProfile {
-  const scientificName = plant.scientific_name?.trim().toLowerCase();
-  if (scientificName) {
-    const exact = speciesTemperatureProfiles[scientificName];
-    if (exact) return exact;
-    const genus = Object.entries(speciesTemperatureProfiles).find(([name]) =>
-      scientificName.startsWith(`${name} `),
-    );
-    if (genus) return genus[1];
-  }
-  const commonName = plant.common_name.trim().toLowerCase();
-  if (
-    commonName.includes("orchid") ||
-    scientificName?.includes("phalaenopsis")
-  ) {
-    return {
-      minimum: 16,
-      maximum: 29,
-      note: "Broad warm-growing orchid fallback; confirm the exact orchid for a narrower range",
-    };
-  }
-  return plant.environment_type === "indoor"
-    ? {
-        minimum: 18,
-        maximum: 29,
-        note: "General indoor fallback until the species is confirmed",
-      }
-    : {
-        minimum: 5,
-        maximum: 35,
-        note: "General outdoor fallback until the species is confirmed",
-      };
-}
-
-function moistureProfile(plant: Plant): MoistureProfile {
-  const scientificName = plant.scientific_name?.trim().toLowerCase();
-  if (scientificName) {
-    const exact = speciesMoistureProfiles[scientificName];
-    if (exact) return exact;
-  }
-  const commonName = plant.common_name.trim().toLowerCase();
-  if (commonName.includes("orchid")) {
-    return {
-      minimum: 20,
-      maximum: 55,
-      note: "Broad orchid fallback; species and potting medium can change this substantially",
-    };
-  }
-  return plant.environment_type === "indoor"
-    ? {
-        minimum: 20,
-        maximum: 60,
-        note: "General indoor fallback until the species is confirmed",
-      }
-    : {
-        minimum: 15,
-        maximum: 65,
-        note: "General outdoor-container fallback until the species is confirmed",
-      };
-}
-
 function timeAgo(value: string | null): string {
   if (!value) return "No valid reading";
   const minutes = Math.max(
@@ -223,8 +83,6 @@ export function PlantCard({
   const StateIcon = state.icon;
   const [temperatureOpen, setTemperatureOpen] = useState(false);
   const [moistureOpen, setMoistureOpen] = useState(false);
-  const preferredTemperature = temperatureProfile(plant);
-  const preferredMoisture = moistureProfile(plant);
   const temperatureRangeId = `temperature-range-${plant.id}`;
   const moistureRangeId = `moisture-range-${plant.id}`;
   return (
@@ -257,7 +115,7 @@ export function PlantCard({
           <button
             className={`reading reading-button reading--${plant.moisture_status}`}
             type="button"
-            aria-label={`Moisture ${plant.moisture === null ? "unavailable" : `${plant.moisture} percent`}; show recommended range`}
+            aria-label={`Moisture ${plant.moisture === null ? "unavailable" : `${plant.moisture} percent`}; show monitoring thresholds`}
             aria-expanded={moistureOpen}
             aria-controls={moistureRangeId}
             onClick={(event) => {
@@ -313,12 +171,14 @@ export function PlantCard({
               onClick={(event) => event.stopPropagation()}
             >
               <strong>
-                Suggested soil-moisture sensor band: {preferredMoisture.minimum}
-                –{preferredMoisture.maximum}%
+                Watering check at or below {plant.moisture_check_threshold}%
               </strong>
               <span>
-                {preferredMoisture.note}. Use the trend as guidance because
-                readings vary by sensor, substrate, and placement.
+                Prolonged-wet warning at or above {plant.moisture_wet_threshold}%
+                for 24 hours. {plant.care_profile_basis}
+                {plant.moisture_thresholds_custom ? " · custom thresholds" : " · starting profile"}.
+                Confirm the soil manually because readings vary by sensor,
+                substrate, and placement.
               </span>
             </div>
           )}
@@ -330,12 +190,12 @@ export function PlantCard({
               onClick={(event) => event.stopPropagation()}
             >
               <strong>
-                Normal temperature range: {preferredTemperature.minimum}–
-                {preferredTemperature.maximum}°C
+                Normal temperature range: {plant.temperature_minimum}–
+                {plant.temperature_maximum}°C
               </strong>
               <span>
-                {preferredTemperature.note}. Guidance only; temperature alerts
-                are not automated yet.
+                {plant.care_profile_basis}. Guidance only; temperature alerts are
+                not automated yet.
               </span>
             </div>
           )}

@@ -1849,6 +1849,52 @@ button {
   font-size: 12px;
   font-weight: 800;
 }
+.monitoring-thresholds {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #d8d9d2;
+  border-radius: 10px;
+}
+.monitoring-thresholds legend {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+.monitoring-thresholds .checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.monitoring-thresholds .checkbox-row input {
+  width: 16px;
+  height: 16px;
+}
+.threshold-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.input-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.input-with-unit > span {
+  color: #718178;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.monitoring-thresholds > small {
+  display: block;
+  margin-top: 10px;
+  color: #718178;
+  font-size: 9px;
+  line-height: 1.5;
+}
 .edit-photo-layout {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);
@@ -2532,6 +2578,9 @@ button {
     grid-column: auto;
   }
   .sensor-grid {
+    grid-template-columns: 1fr;
+  }
+  .threshold-grid {
     grid-template-columns: 1fr;
   }
   .edit-photo-layout {

@@ -58,7 +58,7 @@ class PlantDoctorContext:
     temperature: float | None
     illuminance: float | None
     temperature_range_celsius: tuple[int, int]
-    soil_moisture_sensor_range_percent: tuple[int, int]
+    moisture_monitoring_thresholds_percent: tuple[float, float]
     care_profile_basis: str
     moisture_history: MoistureHistoryContext
     history: tuple[PlantDoctorHistoryContext, ...] = ()
@@ -169,7 +169,10 @@ def _prompt(context: PlantDoctorContext) -> str:
     }
     care_profile = {
         "temperature_range_celsius": context.temperature_range_celsius,
-        "starting_soil_moisture_sensor_band_percent": (context.soil_moisture_sensor_range_percent),
+        "moisture_monitoring_thresholds_percent": {
+            "watering_check_at_or_below": context.moisture_monitoring_thresholds_percent[0],
+            "prolonged_wet_at_or_above": context.moisture_monitoring_thresholds_percent[1],
+        },
         "basis": context.care_profile_basis,
     }
     moisture_history = {
@@ -222,15 +225,15 @@ def _prompt(context: PlantDoctorContext) -> str:
         f"Latest optional sensor context: {json.dumps(sensor_context, separators=(',', ':'))}.\n"
         f"Care profile: {json.dumps(care_profile, separators=(',', ':'))}. Compare available "
         "temperature and soil-moisture readings with this profile when relevant. Treat the soil "
-        "moisture percentage only as a starting sensor band because calibration, substrate, and "
-        "probe placement vary.\n"
+        "moisture thresholds as provisional monitoring triggers because calibration, substrate, "
+        "and probe placement vary; they are not a universal healthy range.\n"
         f"Recent soil-moisture history summary: "
         f"{json.dumps(moisture_history, separators=(',', ':'))}. Do not claim the soil has "
         "stayed wet or dry longer than this history supports. Streak durations labelled "
         "at_least are lower bounds, not exact onset times. If the sample count is low, state "
         "that the evidence is insufficient.\n"
         "Build watering_guidance specifically for this plant and its current evidence. In "
-        "notification_point, use the lower edge of the supplied starting band as a provisional "
+        "notification_point, use the supplied watering-check trigger as a provisional "
         "alert point and explain that the user should calibrate it against this pot rather than "
         "presenting it as a universal threshold. In manual_checks, explain how to check two or "
         "three root-zone spots between the stem and pot wall and below the dry surface without "
@@ -388,12 +391,12 @@ def _clean_watering_guidance(
 
 
 def _fallback_watering_guidance(context: PlantDoctorContext) -> PlantDoctorWateringGuidance:
-    lower = context.soil_moisture_sensor_range_percent[0]
+    lower = context.moisture_monitoring_thresholds_percent[0]
     return PlantDoctorWateringGuidance(
         assessment="Use the sensor trend together with a manual root-zone check before watering.",
         notification_point=(
-            f"Start with an alert below {lower}% and calibrate it against this pot's actual "
-            "root-zone moisture before treating it as the watering threshold."
+            f"Start with an alert at or below {lower:g}% and calibrate it against this "
+            "pot's actual root-zone moisture before treating it as the watering threshold."
         ),
         manual_checks=[
             "Check two or three spots between the stem and pot wall below the dry surface."

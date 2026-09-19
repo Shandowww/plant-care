@@ -16,8 +16,16 @@ export interface Plant {
   state: PlantState;
   moisture: number | null;
   moisture_status: string;
+  moisture_check_threshold: number;
+  moisture_wet_threshold: number;
+  moisture_check_threshold_override: number | null;
+  moisture_wet_threshold_override: number | null;
+  moisture_thresholds_custom: boolean;
   temperature: number | null;
   temperature_status: string;
+  temperature_minimum: number;
+  temperature_maximum: number;
+  care_profile_basis: string;
   battery: number | null;
   illuminance: number | null;
   photo_updated_at: string | null;
@@ -74,6 +82,8 @@ export interface PlantCreate {
   common_name: string;
   scientific_name: string | null;
   environment_type: "indoor" | "outdoor_covered" | "outdoor_exposed";
+  moisture_check_threshold_override: number | null;
+  moisture_wet_threshold_override: number | null;
   entity_mapping?: PlantEntityMapping;
 }
 
@@ -108,7 +118,8 @@ export interface ActionHistoryEvent {
     | "action_auto_completed"
     | "action_reopened"
     | "ai_recommendation_created"
-    | "sensor_issue_created";
+    | "sensor_issue_created"
+    | "care_rule_action_created";
   old_json: Record<string, unknown> | null;
   new_json: Record<string, unknown> | null;
   occurred_at: string;

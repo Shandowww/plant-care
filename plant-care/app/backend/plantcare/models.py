@@ -16,6 +16,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from .care_profiles import CareProfile, care_profile
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -52,6 +54,8 @@ class Plant(Base):
     state: Mapped[str] = mapped_column(String(32), default=PlantState.GOOD.value, index=True)
     moisture: Mapped[float | None] = mapped_column(Float, nullable=True)
     moisture_status: Mapped[str] = mapped_column(String(32), default="normal")
+    moisture_check_threshold_override: Mapped[float | None] = mapped_column(Float, nullable=True)
+    moisture_wet_threshold_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     temperature_status: Mapped[str] = mapped_column(String(32), default="normal")
     battery: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -72,6 +76,45 @@ class Plant(Base):
     entity_mapping: Mapped["PlantEntityMapping | None"] = relationship(
         back_populates="plant", cascade="all, delete-orphan", uselist=False, lazy="selectin"
     )
+
+    @property
+    def care_profile(self) -> CareProfile:
+        return care_profile(self.scientific_name, self.common_name, self.environment_type)
+
+    @property
+    def moisture_check_threshold(self) -> float:
+        return (
+            self.moisture_check_threshold_override
+            if self.moisture_check_threshold_override is not None
+            else float(self.care_profile.moisture_check_threshold)
+        )
+
+    @property
+    def moisture_wet_threshold(self) -> float:
+        return (
+            self.moisture_wet_threshold_override
+            if self.moisture_wet_threshold_override is not None
+            else float(self.care_profile.moisture_wet_threshold)
+        )
+
+    @property
+    def moisture_thresholds_custom(self) -> bool:
+        return (
+            self.moisture_check_threshold_override is not None
+            or self.moisture_wet_threshold_override is not None
+        )
+
+    @property
+    def temperature_minimum(self) -> float:
+        return float(self.care_profile.temperature_minimum)
+
+    @property
+    def temperature_maximum(self) -> float:
+        return float(self.care_profile.temperature_maximum)
+
+    @property
+    def care_profile_basis(self) -> str:
+        return self.care_profile.basis
 
 
 class PlantEntityMapping(Base):

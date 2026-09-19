@@ -157,10 +157,25 @@ range. Identified plants use a species profile; unidentified plants show a
 clearly labelled general indoor or outdoor fallback. These ranges are guidance
 only and do not currently trigger care actions or notifications.
 
-Select the moisture reading to reveal a typical soil-moisture range using the
-same species/fallback approach. Treat the percentage as trend guidance rather
-than an absolute horticultural threshold because different sensors, substrates,
-and probe positions can report different values for the same pot.
+Select the moisture reading to reveal two starting monitoring thresholds using
+the same species/fallback approach: a watering-check trigger and a prolonged-wet
+trigger. These do not describe a universal healthy interval. Different sensors,
+substrates, and probe positions can report different values for the same pot.
+Open **Details → Edit plant → Moisture monitoring** to enable custom thresholds
+for an individual plant or leave customization off to follow its species profile.
+
+PlantCare creates a **Check soil moisture** action after three fresh readings at
+or below the watering-check trigger. It asks for checks in several root-zone
+locations before watering; the percentage alone never commands watering. A
+single low reading marks the plant **Watch** while confirmation is pending. The
+action completes automatically after the reading rises at least five percentage
+points above the trigger.
+
+When at least three readings remain at or above the prolonged-wet trigger for 24
+hours, PlantCare creates **Help soil dry safely** with drainage, standing-water,
+airflow, and inspection guidance. It completes automatically after the reading
+falls five points below that trigger. The separate recovery boundaries prevent
+repeated alerts when a reading moves back and forth near a threshold.
 
 PlantCare's **Moisture** value means moisture in the potting medium. Some Home
 Assistant plant probes classify that entity as `humidity`, which PlantCare also
@@ -176,9 +191,9 @@ with the saved identity. If the species is not confirmed, it receives a clearly
 labelled indoor, outdoor-container, or warm-growing-orchid fallback instead.
 
 The bundled profiles use conservative household-growing guidance from sources
-including the NC State Extension Plant Toolbox and the American Orchid Society.
-Temperature bands are species guidance. Soil-moisture bands are deliberately
-labelled as sensor starting points rather than universal targets: potting media,
+including university extension material and the American Orchid Society.
+Temperature bands are species guidance. Soil values are deliberately labelled
+as provisional monitoring triggers rather than universal targets: potting media,
 sensor calibration, probe position, and plant growth all affect the percentage.
 
 Plant details also include a bundled care guide. Identified plants receive a
@@ -201,13 +216,15 @@ Settings → Apps → Plant Care Dashboard → Configuration** using
 `stale_sensor_hours`. The monitor uses 72 hours by default. Restart the app after
 changing an app option.
 
-`home_assistant_notifications` is enabled by default. A newly detected sensor
-issue creates one persistent notification in Home Assistant using the Supervisor
-token already injected into the app; no webhook, long-lived access token, or
-Telegram setup is required. The notification contains a link that opens
-PlantCare directly on the affected plant card. When the sensor value changes and
-the issue closes, PlantCare dismisses the matching notification automatically.
-Delivery can be disabled in the same app configuration screen.
+`home_assistant_notifications` is enabled by default. A newly confirmed
+low-moisture condition, prolonged-wet condition, battery below 20%, or
+non-responsive sensor creates one persistent notification in Home Assistant
+using the Supervisor token already injected into the app; no webhook, long-lived
+access token, or Telegram setup is required. The notification contains a link
+that opens PlantCare directly on the affected plant card. Recovery completes the
+matching monitoring-managed action and dismisses its notification automatically.
+Battery recovery requires at least 25%, providing hysteresis around the warning
+threshold. Delivery can be disabled in the same app configuration screen.
 
 Persistent notifications appear in Home Assistant's notification panel rather
 than as direct iOS or Android push alerts. A future mobile-notify option can send

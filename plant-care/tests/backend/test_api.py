@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from plantcare.config import Settings
-from plantcare.main import create_app
+from plantcare.main import AUTO_MANAGED_ACTION_TYPES, create_app
 from plantcare.plant_doctor import PlantDoctorContext, PlantDoctorProviderError
 from plantcare.schemas import PlantDoctorResponse
 
@@ -83,7 +83,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.9.1",
+        "version": "0.10.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -125,6 +125,52 @@ def test_simulator_seeds_nine_plants(development_client: TestClient) -> None:
     }
     assert payload["plants"][0]["display_name"] == "Peace Lily"
     assert any(plant["scientific_name"] is None for plant in payload["plants"])
+
+
+def test_plant_monitoring_thresholds_can_be_customized_and_reset(
+    development_client: TestClient,
+) -> None:
+    plant = next(
+        item
+        for item in development_client.get("/api/v1/plants").json()["plants"]
+        if item["scientific_name"] == "Dracaena trifasciata"
+    )
+    assert plant["moisture_check_threshold"] == 10
+    assert plant["moisture_wet_threshold"] == 45
+    assert plant["moisture_thresholds_custom"] is False
+
+    customized = development_client.patch(
+        f"/api/v1/plants/{plant['id']}",
+        json={
+            "moisture_check_threshold_override": 8,
+            "moisture_wet_threshold_override": 40,
+        },
+    )
+    assert customized.status_code == 200
+    assert customized.json()["moisture_check_threshold"] == 8
+    assert customized.json()["moisture_wet_threshold"] == 40
+    assert customized.json()["moisture_thresholds_custom"] is True
+
+    invalid = development_client.patch(
+        f"/api/v1/plants/{plant['id']}",
+        json={
+            "moisture_check_threshold_override": 50,
+            "moisture_wet_threshold_override": 40,
+        },
+    )
+    assert invalid.status_code == 422
+
+    reset = development_client.patch(
+        f"/api/v1/plants/{plant['id']}",
+        json={
+            "moisture_check_threshold_override": None,
+            "moisture_wet_threshold_override": None,
+        },
+    )
+    assert reset.status_code == 200
+    assert reset.json()["moisture_check_threshold"] == 10
+    assert reset.json()["moisture_wet_threshold"] == 45
+    assert reset.json()["moisture_thresholds_custom"] is False
 
 
 def test_simulator_actions_are_deduplicated(development_client: TestClient) -> None:
@@ -384,7 +430,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
     assert context.moisture == plant["moisture"]
     assert context.moisture_history.window_hours == 168
     assert context.temperature_range_celsius == (18, 29)
-    assert context.soil_moisture_sensor_range_percent == (25, 60)
+    assert context.moisture_monitoring_thresholds_percent == (25, 60)
     assert context.care_profile_basis == "golden pothos profile"
     assert context.history == ()
     assert doctor.calls[1][1].history[0].decision == "accepted"
@@ -493,7 +539,10 @@ def test_care_action_can_be_completed_and_reopened(development_client: TestClien
     ]
 
 
-@pytest.mark.parametrize("action_type", ["low_moisture", "sensor_issue"])
+@pytest.mark.parametrize(
+    "action_type",
+    ["low_moisture", "sensor_issue"],
+)
 def test_sensor_managed_action_cannot_be_completed_manually(
     development_client: TestClient, action_type: str
 ) -> None:
@@ -503,10 +552,19 @@ def test_sensor_managed_action_cannot_be_completed_manually(
     response = development_client.post(f"/api/v1/actions/{action['id']}/complete")
 
     assert response.status_code == 409
-    assert "managed by sensor recovery" in response.json()["detail"]
+    assert "managed automatically by monitoring recovery" in response.json()["detail"]
     plants = development_client.get("/api/v1/plants").json()["plants"]
     plant = next(plant for plant in plants if plant["id"] == action["plant_id"])
     assert plant["highest_priority_action"] == action["title"]
+
+
+def test_all_rule_generated_actions_are_auto_managed() -> None:
+    assert AUTO_MANAGED_ACTION_TYPES == {
+        "low_moisture",
+        "prolonged_wet",
+        "low_battery",
+        "sensor_issue",
+    }
 
 
 def test_snoozed_action_remains_visible_on_plant_card(development_client: TestClient) -> None:

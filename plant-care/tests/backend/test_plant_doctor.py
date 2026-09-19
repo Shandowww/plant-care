@@ -28,7 +28,7 @@ def context() -> PlantDoctorContext:
         temperature=24.5,
         illuminance=450,
         temperature_range_celsius=(18, 29),
-        soil_moisture_sensor_range_percent=(25, 60),
+        moisture_monitoring_thresholds_percent=(25, 60),
         care_profile_basis="golden pothos profile",
         moisture_history=MoistureHistoryContext(
             window_hours=168,
@@ -50,7 +50,10 @@ def test_care_profiles_are_species_specific_and_fallback_transparently() -> None
     unknown = care_profile(None, "Unknown plant", "outdoor_exposed")
 
     assert (monstera.temperature_minimum, monstera.temperature_maximum) == (16, 29)
-    assert (monstera.moisture_minimum, monstera.moisture_maximum) == (30, 65)
+    assert (
+        monstera.moisture_check_threshold,
+        monstera.moisture_wet_threshold,
+    ) == (30, 65)
     assert "orchid fallback" in orchid.basis
     assert "species not confirmed" in unknown.basis
 
@@ -65,7 +68,9 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
         assert "Kitchen Pothos" in body["messages"][1]["content"]
         assert "Epipremnum aureum" in body["messages"][1]["content"]
         assert (
-            '"starting_soil_moisture_sensor_band_percent":[25,60]' in body["messages"][1]["content"]
+            '"moisture_monitoring_thresholds_percent":'
+            '{"watering_check_at_or_below":25,"prolonged_wet_at_or_above":60}'
+            in body["messages"][1]["content"]
         )
         assert "The summary must name this plant" in body["messages"][1]["content"]
         return httpx2.Response(

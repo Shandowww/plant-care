@@ -7,6 +7,6 @@ configuration:
     description: Create a sensor warning when a mapped moisture, temperature, or illuminance value has not changed for this many hours.
   home_assistant_notifications:
     name: Home Assistant notifications
-    description: Send persistent Home Assistant notifications for new sensor warnings and dismiss them automatically after recovery.
+    description: Send persistent Home Assistant notifications for plant-care and sensor warnings, then dismiss them automatically after recovery.
 network:
   8098/tcp: LAN-only dashboard port. Never forward this port to the internet.

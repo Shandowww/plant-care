@@ -80,8 +80,16 @@ class PlantSummary(BaseModel):
     state: str
     moisture: float | None
     moisture_status: str
+    moisture_check_threshold: float
+    moisture_wet_threshold: float
+    moisture_check_threshold_override: float | None
+    moisture_wet_threshold_override: float | None
+    moisture_thresholds_custom: bool
     temperature: float | None
     temperature_status: str
+    temperature_minimum: float
+    temperature_maximum: float
+    care_profile_basis: str
     battery: float | None
     illuminance: float | None
     photo_updated_at: datetime | None
@@ -188,6 +196,8 @@ class PlantCreateRequest(BaseModel):
     environment_type: str = Field(
         default="indoor", pattern="^(indoor|outdoor_covered|outdoor_exposed)$"
     )
+    moisture_check_threshold_override: float | None = Field(default=None, ge=0, le=100)
+    moisture_wet_threshold_override: float | None = Field(default=None, ge=0, le=100)
     entity_mapping: PlantEntityMappingUpdate | None = None
 
 
@@ -200,6 +210,8 @@ class PlantUpdateRequest(BaseModel):
     environment_type: str | None = Field(
         default=None, pattern="^(indoor|outdoor_covered|outdoor_exposed)$"
     )
+    moisture_check_threshold_override: float | None = Field(default=None, ge=0, le=100)
+    moisture_wet_threshold_override: float | None = Field(default=None, ge=0, le=100)
 
 
 class HealthResponse(BaseModel):

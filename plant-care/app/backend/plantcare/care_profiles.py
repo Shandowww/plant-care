@@ -5,8 +5,8 @@ from dataclasses import dataclass
 class CareProfile:
     temperature_minimum: int
     temperature_maximum: int
-    moisture_minimum: int
-    moisture_maximum: int
+    moisture_check_threshold: int
+    moisture_wet_threshold: int
     basis: str
 
 
