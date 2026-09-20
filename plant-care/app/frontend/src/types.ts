@@ -140,6 +140,8 @@ export interface HealthResponse {
 }
 
 export interface PlantDoctorResponse {
+  identity_status: "match" | "mismatch" | "uncertain";
+  identity_explanation: string;
   visit_id: string | null;
   summary: string;
   observations: string[];
@@ -184,7 +186,7 @@ export interface PlantDoctorVisit {
   possible_issues: string[];
   next_steps: string[];
   watering_guidance: PlantDoctorWateringGuidance | null;
-  sensor_snapshot: Record<string, number | null>;
+  sensor_snapshot: Record<string, number | string | null>;
   confidence: "low" | "medium" | "high";
   provider: string;
   model: string;

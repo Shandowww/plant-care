@@ -127,6 +127,8 @@ class PlantDoctorWateringGuidance(BaseModel):
 
 
 class PlantDoctorResponse(BaseModel):
+    identity_status: Literal["match", "mismatch", "uncertain"] = "uncertain"
+    identity_explanation: str = "Photo identity has not been verified."
     visit_id: str | None = None
     summary: str
     observations: list[str]
@@ -163,7 +165,7 @@ class PlantDoctorVisitSummary(BaseModel):
     possible_issues: list[str]
     next_steps: list[str]
     watering_guidance: PlantDoctorWateringGuidance | None
-    sensor_snapshot: dict[str, float | None]
+    sensor_snapshot: dict[str, float | str | None]
     confidence: Literal["low", "medium", "high"]
     provider: str
     model: str

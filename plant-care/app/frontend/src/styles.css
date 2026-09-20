@@ -2183,7 +2183,8 @@ button {
   display: block;
   width: 100%;
   height: 190px;
-  object-fit: cover;
+  object-fit: contain;
+  background: #eef4ef;
   border-radius: 10px;
 }
 .doctor-result__summary {
@@ -2284,7 +2285,7 @@ button {
   color: #765927;
   background: #fff7e9;
   border-radius: 8px;
-  font-size: 8px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .doctor-result > small {

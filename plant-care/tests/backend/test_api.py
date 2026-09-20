@@ -17,6 +17,8 @@ class StubPlantDoctor:
     async def analyze(self, photo: bytes, context: PlantDoctorContext) -> PlantDoctorResponse:
         self.calls.append((photo, context))
         return PlantDoctorResponse(
+            identity_status="match",
+            identity_explanation="Visible leaves support the recorded identity.",
             summary="The plant looks generally healthy.",
             observations=["Leaves are mostly green."],
             possible_issues=["One leaf may have a dry edge."],
@@ -83,7 +85,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.10.2",
+        "version": "0.10.3",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,

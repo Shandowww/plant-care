@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -105,24 +106,32 @@ class CloudflarePlantDoctor:
                                 "role": "system",
                                 "content": (
                                     "You provide cautious, species-aware visual guidance for "
-                                    "household plants. Use the supplied plant identity as the "
-                                    "working identification, but explicitly flag it if the photo "
-                                    "appears inconsistent. Name the plant in the summary and make "
+                                    "household plants. FIRST compare leaf shape, growth habit "
+                                    "and flowers against the claimed identity. The supplied name "
+                                    "is an unverified claim, not proof of what the photo shows. "
+                                    "Return identity_status: match, mismatch, or uncertain, and "
+                                    "identity_explanation with visible evidence. Use match only "
+                                    "with supporting visual evidence; uncertain when insufficient. "
+                                    "On mismatch or uncertainty, withhold species-specific care, "
+                                    "watering instructions and sensor interpretation. Never change "
+                                    "the saved identity. Name the plant only when supported; make "
                                     "advice specific to that taxon when possible. "
                                     "Do not claim certainty, prescribe pesticides, or treat sensor "
                                     "values as visual facts. Return only one JSON object with keys "
-                                    "summary, observations, possible_issues, next_steps, "
+                                    "identity_status, identity_explanation, summary, observations, "
+                                    "possible_issues, next_steps, "
                                     "watering_guidance, confidence. watering_guidance must be "
                                     "an object with assessment and notification_point strings, "
                                     "plus manual_checks, watering_steps, and drying_steps arrays. "
                                     "Each list field must contain at most three short strings. "
-                                    "Confidence must be low, medium, or high."
+                                    "Confidence must be low, medium, or high. Use plain text, "
+                                    "no Markdown or section headings. Keep summary under 40 words."
                                 ),
                             },
                             {"role": "user", "content": _prompt(context)},
                         ],
                         "image": f"data:image/jpeg;base64,{image}",
-                        "max_tokens": 700,
+                        "max_tokens": 1100,
                         "temperature": 0.2,
                     },
                 )
@@ -215,10 +224,10 @@ def _prompt(context: PlantDoctorContext) -> str:
     return (
         f"Review the attached current photo of {context.display_name} for visible stress, damage, "
         "pests, or care concerns. Distinguish direct observations from possibilities and suggest "
-        "safe physical checks before care changes. The summary must name this plant. If the photo "
+        "an evidence-based care plan only after verifying the photo identity. If the photo "
         "does not appear consistent with the supplied identity, say so rather than silently "
         "switching to generic advice.\n"
-        f"Working identity — friendly name: {context.display_name}; common name: "
+        f"Unverified record identity — friendly name: {context.display_name}; common name: "
         f"{context.common_name}; scientific name: {context.scientific_name or 'unknown'}; "
         f"Home Assistant area: {context.location}; precise position: "
         f"{context.specific_position or 'not provided'}; "
@@ -334,12 +343,28 @@ def _assessment(
         except json.JSONDecodeError:
             parsed = None
     if not isinstance(parsed, dict):
+        raise PlantDoctorProviderError("unavailable")
+    identity_status = parsed.get("identity_status")
+    if identity_status not in ("match", "mismatch", "uncertain"):
+        identity_status = "uncertain"
+    if identity_status != "match":
         return PlantDoctorResponse(
-            summary=text[:1200] or "The provider did not return an assessment.",
-            observations=[],
+            identity_status="mismatch" if identity_status == "mismatch" else "uncertain",
+            identity_explanation=_clean_text(
+                parsed.get("identity_explanation"),
+                "The photo could not be confidently matched to the selected plant.",
+            ),
+            summary="Photo identity needs confirmation before a care plan can be provided.",
+            observations=_clean_list(parsed.get("observations")),
             possible_issues=[],
-            next_steps=["Inspect the plant directly before changing its care."],
-            watering_guidance=_fallback_watering_guidance(context),
+            next_steps=[],
+            watering_guidance=PlantDoctorWateringGuidance(
+                assessment="Species-specific watering advice is withheld for this photo.",
+                notification_point="Existing sensor settings have not been changed.",
+                manual_checks=[],
+                watering_steps=[],
+                drying_steps=[],
+            ),
             confidence="low",
             provider=PROVIDER_NAME,
             model=MODEL_ID,
@@ -353,6 +378,8 @@ def _assessment(
     elif raw_confidence == "high":
         confidence = "high"
     return PlantDoctorResponse(
+        identity_status="match",
+        identity_explanation=_clean_text(parsed.get("identity_explanation"), ""),
         summary=_clean_text(parsed.get("summary"), "Visual assessment completed."),
         observations=_clean_list(parsed.get("observations")),
         possible_issues=_clean_list(parsed.get("possible_issues")),
@@ -367,13 +394,17 @@ def _assessment(
 
 
 def _clean_text(value: Any, fallback: str) -> str:
-    return value.strip()[:1200] if isinstance(value, str) and value.strip() else fallback
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    return re.sub(r"[*`#]+", "", value).strip()[:1200]
 
 
 def _clean_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [item.strip()[:300] for item in value if isinstance(item, str) and item.strip()][:3]
+    return [
+        _clean_text(item, "")[:300] for item in value if isinstance(item, str) and item.strip()
+    ][:3]
 
 
 def _clean_watering_guidance(

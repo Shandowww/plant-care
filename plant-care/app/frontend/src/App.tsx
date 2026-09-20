@@ -1,3 +1,4 @@
+import gardenerUrl from "./gardener.svg";
 import {
   Bell,
   Check,
@@ -2374,7 +2375,7 @@ function DoctorDialog({
               <button
                 className="primary-button"
                 type="button"
-                disabled={addingAction || actionAdded || actionDeclined}
+                disabled={addingAction || actionAdded || actionDeclined || result.identity_status !== "match"}
                 onClick={addAction}
               >
                 {actionAdded
@@ -2506,13 +2507,19 @@ function DoctorResult({
   return (
     <div className="doctor-result">
       <header className="doctor-gardener">
-        <img src="./gardener.svg" alt="" width="72" height="72" />
+        <img src={gardenerUrl} alt="" width="72" height="72" />
         <div>
           <span>YOUR AI GARDENER</span>
-          <h3>A care plan for {plant.display_name}</h3>
+          <h3>{result.identity_status === "match" ? "A care plan" : "Photo review"} for {plant.display_name}</h3>
           <p>Plant-specific guidance, one step at a time.</p>
         </div>
       </header>
+      {result.identity_status !== "match" && (
+        <aside className="doctor-disclaimer" role="status">
+          <strong>{result.identity_status === "mismatch" ? "This may be a different plant." : "Plant identity is not confirmed."}</strong>
+          <p>{result.identity_explanation || "Upload a clear photo of the selected plant before adding care recommendations."}</p>
+        </aside>
+      )}
       {photo && (
         <img
           className="doctor-result__photo"

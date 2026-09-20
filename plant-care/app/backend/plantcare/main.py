@@ -917,6 +917,7 @@ def create_app(
             next_steps=assessment.next_steps,
             watering_guidance=assessment.watering_guidance.model_dump(),
             sensor_snapshot={
+                "identity_status": assessment.identity_status,
                 "moisture": plant.moisture,
                 "temperature": plant.temperature,
                 "illuminance": plant.illuminance,
@@ -1083,6 +1084,11 @@ def create_app(
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="The Plant Doctor history entry was not found.",
+                )
+            if doctor_visit.sensor_snapshot.get("identity_status") in {"mismatch", "uncertain"}:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Confirm the photo matches this plant with a new Doctor check first.",
                 )
         existing = await session.scalar(
             select(CareAction).where(

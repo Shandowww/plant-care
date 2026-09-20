@@ -72,7 +72,7 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
             '{"watering_check_at_or_below":25,"prolonged_wet_at_or_above":60}'
             in body["messages"][1]["content"]
         )
-        assert "The summary must name this plant" in body["messages"][1]["content"]
+        assert "after verifying the photo identity" in body["messages"][1]["content"]
         return httpx2.Response(
             200,
             json={
@@ -81,6 +81,8 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
                     "response": json.dumps(
                         {
                             "summary": "Mostly healthy.",
+                            "identity_status": "match",
+                            "identity_explanation": "Heart-shaped variegated leaves.",
                             "observations": ["Green leaves"],
                             "possible_issues": [],
                             "next_steps": ["Check leaf undersides"],
@@ -186,7 +188,7 @@ async def test_cloudflare_prompt_includes_compact_outcome_history() -> None:
         assert "Avoid repeating advice" in prompt
         return httpx2.Response(
             200,
-            json={"success": True, "result": {"response": "Inspect current growth."}},
+            json={"success": True, "result": {"response": '{"identity_status":"uncertain"}'}},
         )
 
     original = context()
@@ -212,7 +214,7 @@ async def test_cloudflare_prompt_includes_compact_outcome_history() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unstructured_provider_response_is_safe_low_confidence_guidance() -> None:
+async def test_unstructured_provider_response_is_rejected_not_shown_as_raw_prose() -> None:
     async def handler(_request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
             200,
@@ -223,8 +225,41 @@ async def test_unstructured_provider_response_is_safe_low_confidence_guidance() 
         "account-id", "private-token", transport=httpx2.MockTransport(handler)
     )
 
-    result = await doctor.analyze(b"jpeg", context())
+    with pytest.raises(PlantDoctorProviderError, match="unavailable"):
+        await doctor.analyze(b"jpeg", context())
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identity_status", ["mismatch", "uncertain", None, []])
+async def test_unverified_identity_withholds_care_even_if_provider_supplies_it(
+    identity_status: object,
+) -> None:
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "success": True,
+                "result": {
+                    "response": json.dumps(
+                        {
+                            "identity_status": identity_status,
+                            "identity_explanation": "**Different leaf shape and flowers.**",
+                            "summary": "Water the saved species now.",
+                            "next_steps": ["Water now"],
+                            "confidence": "high",
+                            "watering_guidance": {"watering_steps": ["Water now"]},
+                        }
+                    )
+                },
+            },
+        )
+
+    doctor = CloudflarePlantDoctor(
+        "account-id", "private-token", transport=httpx2.MockTransport(handler)
+    )
+    result = await doctor.analyze(b"jpeg", context())
+    assert result.identity_status != "match"
     assert result.confidence == "low"
-    assert result.summary == "Inspect the leaves closely."
-    assert result.next_steps == ["Inspect the plant directly before changing its care."]
+    assert result.next_steps == []
+    assert result.watering_guidance.watering_steps == []
+    assert result.identity_explanation == "Different leaf shape and flowers."

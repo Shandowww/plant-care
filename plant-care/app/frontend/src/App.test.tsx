@@ -58,6 +58,7 @@ function mockApi(
   actionFixture = action,
   plantFixture = plant,
   simulator = true,
+  doctorIdentity = "match",
 ) {
   let currentPlant = { ...plantFixture };
   let doctorChecks = 0;
@@ -210,6 +211,8 @@ function mockApi(
           id: `visit-${doctorChecks}`,
           action_id: null,
           summary: "The leaves look generally healthy.",
+          identity_status: doctorIdentity,
+          identity_explanation: "The visible leaves match the selected plant.",
           observations: ["Leaves are mostly green."],
           possible_issues: ["One edge may be dry."],
           next_steps: ["Check the underside of the leaves."],
@@ -237,6 +240,8 @@ function mockApi(
         return new Response(
           JSON.stringify({
             visit_id: visit.id,
+            identity_status: visit.identity_status,
+            identity_explanation: visit.identity_explanation,
             summary: visit.summary,
             observations: visit.observations,
             possible_issues: visit.possible_issues,
@@ -317,7 +322,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.10.2",
+            version: "0.10.3",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -551,6 +556,18 @@ describe("portal", () => {
     expect(
       screen.getByRole("button", { name: "Send for diagnosis" }),
     ).toBeDisabled();
+  });
+
+  it("blocks accepting advice for a mismatched photo", async () => {
+    mockApi(action, plant, true, "mismatch");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    chooseDiagnosticPhoto();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Send for diagnosis" }));
+    expect(await screen.findByText("This may be a different plant.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add AI recommendation" })).toBeDisabled();
   });
 
   it("runs Plant Doctor only after one-check consent and shows usage", async () => {

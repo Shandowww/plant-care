@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.3
+
+- Bundle the gardener illustration so it loads behind Home Assistant ingress.
+- Require an explicit AI photo-identity assessment; withhold care instructions and
+  prevent accepting visit recommendations when identity is mismatched or uncertain.
+- Reject malformed provider replies instead of displaying raw Markdown; retain the
+  full diagnostic photo and improve warning readability.
+- Add compact repository working context in AGENTS.md.
+
 ## 0.10.2
 
 - Refresh Plant Doctor results with a gardener illustration, personalized heading,
