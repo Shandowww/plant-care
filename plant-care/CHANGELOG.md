@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.2
+
+- Refresh Plant Doctor results with a gardener illustration, personalized heading,
+  bulleted actions, quoted recommendations, and more readable mobile typography.
+
+- Lead confirmed low-moisture actions and notifications with “Water plant” and
+  plant-specific watering technique instead of routine manual soil checks.
+- Refresh existing active action wording during sensor sync without duplicating alerts.
+- Ask Plant Doctor to prioritize watering technique and reserve manual checks for
+  conflicting evidence or symptoms; retain confirmation and recovery thresholds.
+
 ## 0.10.1
 
 - Clear unavailable sensor values and create recoverable sensor warnings.

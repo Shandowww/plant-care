@@ -563,9 +563,10 @@ def test_three_low_readings_create_action_notification_and_recover(tmp_path: Pat
         actions = client.get("/api/v1/actions").json()["actions"]
         assert len(actions) == 1
         assert actions[0]["type"] == "low_moisture"
-        assert actions[0]["title"] == "Check soil moisture"
+        assert actions[0]["title"] == "Water plant"
         assert "latest 3 readings" in actions[0]["observation"]
-        assert "two or three root-zone spots" in actions[0]["recommendation"]
+        assert "snake plant" in actions[0]["recommendation"]
+        assert "empty the saucer" in actions[0]["recommendation"]
         assert len(notifier.created) == 1
         assert f"#plants/{plant['id']}" in notifier.created[0]["message"]
 

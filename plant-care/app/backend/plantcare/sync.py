@@ -10,6 +10,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from .care_profiles import watering_instructions
 from .models import ActionStatus, AppSetting, AuditEvent, CareAction, Plant, Reading
 from .schemas import HomeAssistantEntity
 
@@ -128,6 +129,7 @@ async def activate_managed_action(
             )
         )
     action.observation = spec.observation
+    action.title = spec.title
     action.recommendation = spec.recommendation
     if not should_notify:
         return action, None
@@ -547,18 +549,17 @@ async def sync_mapped_readings(
                     spec = ManagedActionSpec(
                         key=low_key,
                         action_type="low_moisture",
-                        title="Check soil moisture",
+                        title="Water plant",
                         observation=(
                             f"The latest {LOW_MOISTURE_CONFIRMATIONS} readings are at or below "
                             f"this plant's {low_threshold:g}% watering-check trigger; the current "
                             f"reading is {moisture_value.value:g}%."
                         ),
-                        recommendation=(
-                            "Check two or three root-zone spots. Water slowly and evenly only if "
-                            "those checks confirm the mix is dry, then let excess water drain."
+                        recommendation=watering_instructions(
+                            plant.scientific_name, plant.common_name
                         ),
                         priority=1,
-                        notification_title=f"PlantCare: check {plant.display_name}",
+                        notification_title=f"PlantCare: water {plant.display_name}",
                     )
                     action, event = await activate_managed_action(
                         session, managed_actions_by_key.get(low_key), plant, spec, now

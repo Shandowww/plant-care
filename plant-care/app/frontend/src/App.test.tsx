@@ -317,7 +317,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.10.1",
+            version: "0.10.2",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -587,8 +587,11 @@ describe("portal", () => {
       screen.getByText("Golden pothos · Epipremnum aureum"),
     ).toBeInTheDocument();
     expect(screen.getByText("Watering plan")).toBeInTheDocument();
+    expect(screen.getByText("YOUR AI GARDENER")).toBeInTheDocument();
+    expect(screen.getByText("Recommended next steps")).toBeInTheDocument();
     expect(screen.getByText("Suggested notification point")).toBeInTheDocument();
     expect(screen.getByText("Check two root-zone spots.")).toBeInTheDocument();
+    expect(screen.getByText("Check two root-zone spots.").tagName).toBe("Q");
     expect(screen.getByText(/11\.25 neurons/)).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", { name: "Add AI recommendation" }),

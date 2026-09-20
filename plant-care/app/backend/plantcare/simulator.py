@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .care_profiles import watering_instructions
 from .models import ActionStatus, AuditEvent, CareAction, Plant, PlantEntityMapping
 
 SIMULATED_PLANTS = [
@@ -159,9 +160,9 @@ async def seed_simulator(session: AsyncSession) -> None:
             CareAction(
                 plant_id=by_name["Golden Pothos"].id,
                 type="low_moisture",
-                title="Check soil moisture",
+                title="Water plant",
                 observation="Moisture is below the configured range after three readings.",
-                recommendation="Check the top layer of soil and water if it is dry.",
+                recommendation=watering_instructions("epipremnum aureum", "Golden pothos"),
                 priority=1,
                 due_at=now,
                 deduplication_key="sim:golden-pothos:low-moisture",

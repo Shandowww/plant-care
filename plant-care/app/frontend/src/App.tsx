@@ -2505,6 +2505,14 @@ function DoctorResult({
 }) {
   return (
     <div className="doctor-result">
+      <header className="doctor-gardener">
+        <img src="./gardener.svg" alt="" width="72" height="72" />
+        <div>
+          <span>YOUR AI GARDENER</span>
+          <h3>A care plan for {plant.display_name}</h3>
+          <p>Plant-specific guidance, one step at a time.</p>
+        </div>
+      </header>
       {photo && (
         <img
           className="doctor-result__photo"
@@ -2525,7 +2533,7 @@ function DoctorResult({
         <span className={`confidence confidence--${result.confidence}`}>
           {result.confidence} confidence
         </span>
-        <h3>{result.summary}</h3>
+        <blockquote className="doctor-quote">{result.summary}</blockquote>
       </div>
       {result.observations.length > 0 && (
         <DoctorList title="Visible observations" items={result.observations} />
@@ -2534,14 +2542,14 @@ function DoctorResult({
         <DoctorList title="Possible issues" items={result.possible_issues} />
       )}
       {result.next_steps.length > 0 && (
-        <DoctorList title="Safe next checks" items={result.next_steps} />
+        <DoctorList title="Recommended next steps" items={result.next_steps} recommendation />
       )}
       <section
         className="doctor-watering-plan"
         aria-labelledby="doctor-watering-title"
       >
         <h4 id="doctor-watering-title">Watering plan</h4>
-        <p>{result.watering_guidance.assessment}</p>
+        <blockquote className="doctor-quote">{result.watering_guidance.assessment}</blockquote>
         <div className="doctor-watering-threshold">
           <strong>Suggested notification point</strong>
           <span>{result.watering_guidance.notification_point}</span>
@@ -2550,18 +2558,21 @@ function DoctorResult({
           <DoctorList
             title="Check this pot first"
             items={result.watering_guidance.manual_checks}
+            recommendation
           />
         )}
         {result.watering_guidance.watering_steps.length > 0 && (
           <DoctorList
             title="If it is ready for water"
             items={result.watering_guidance.watering_steps}
+            recommendation
           />
         )}
         {result.watering_guidance.drying_steps.length > 0 && (
           <DoctorList
             title="If it has stayed too wet"
             items={result.watering_guidance.drying_steps}
+            recommendation
           />
         )}
       </section>
@@ -2576,13 +2587,19 @@ function DoctorResult({
   );
 }
 
-function DoctorList({ title, items }: { title: string; items: string[] }) {
+function DoctorList({ title, items, recommendation = false }: {
+  title: string;
+  items: string[];
+  recommendation?: boolean;
+}) {
   return (
     <section>
       <h4>{title}</h4>
       <ul>
         {items.map((item) => (
-          <li key={item}>{item}</li>
+          <li key={item}>
+            {recommendation ? <q>{item}</q> : item}
+          </li>
         ))}
       </ul>
     </section>

@@ -7,6 +7,7 @@ from typing import Any, Literal, Protocol
 
 import httpx2
 
+from .care_profiles import watering_instructions
 from .schemas import PlantDoctorResponse, PlantDoctorWateringGuidance
 
 MODEL_ID = "@cf/meta/llama-3.2-11b-vision-instruct"
@@ -235,9 +236,11 @@ def _prompt(context: PlantDoctorContext) -> str:
         "Build watering_guidance specifically for this plant and its current evidence. In "
         "notification_point, use the supplied watering-check trigger as a provisional "
         "alert point and explain that the user should calibrate it against this pot rather than "
-        "presenting it as a universal threshold. In manual_checks, explain how to check two or "
-        "three root-zone spots between the stem and pot wall and below the dry surface without "
-        "damaging roots. In watering_steps, explain an appropriate slow, even watering method, "
+        "presenting it as a universal threshold. Lead with actionable, species-specific watering "
+        "technique when watering is due, not routine reminders to inspect the soil. Leave "
+        "manual_checks empty unless conflicting readings or symptoms warrant a targeted "
+        "diagnostic check; do not recommend watering when evidence suggests excess moisture. "
+        "In watering_steps, explain an appropriate slow, even watering method, "
         "drainage, and saucer handling; do not invent a fixed water volume when pot dimensions "
         "are unknown. Only recommend drying interventions when the current reading or history "
         "supports excess moisture. Prefer safe drainage, airflow, and species-suitable light or "
@@ -393,17 +396,12 @@ def _clean_watering_guidance(
 def _fallback_watering_guidance(context: PlantDoctorContext) -> PlantDoctorWateringGuidance:
     lower = context.moisture_monitoring_thresholds_percent[0]
     return PlantDoctorWateringGuidance(
-        assessment="Use the sensor trend together with a manual root-zone check before watering.",
+        assessment="When watering is due, use the technique below; this is not a diagnosis.",
         notification_point=(
             f"Start with an alert at or below {lower:g}% and calibrate it against this "
             "pot's actual root-zone moisture before treating it as the watering threshold."
         ),
-        manual_checks=[
-            "Check two or three spots between the stem and pot wall below the dry surface."
-        ],
-        watering_steps=[
-            "If those root-zone checks are dry, water slowly and evenly, let excess "
-            "drain, and empty the saucer."
-        ],
+        manual_checks=[],
+        watering_steps=[watering_instructions(context.scientific_name, context.common_name)],
         drying_steps=[],
     )
