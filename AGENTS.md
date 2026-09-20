@@ -93,3 +93,19 @@ git diff --check
 - README.md: local setup; plant-care/DOCS.md: HA operation;
   docs/architecture.md: design context. Read specific modules/tests before editing;
   this file intentionally omits individual feature details and transient work status.
+
+## Development principles
+- This is a shared-household plant monitoring and care app; center configuration
+  and UI on individual plant profiles, with species defaults overridable per plant.
+- Keep changes small and maintainable; reuse existing services, components, and
+  HA mechanisms instead of parallel systems or unnecessary dependencies.
+- Preserve existing data/API compatibility; avoid unrelated refactoring.
+- Inspect relevant code, related tests, and data flow before edits. The repository,
+  not this document, is the source of truth; avoid broad exploration unless needed.
+- Maintain the established visual language, clear statuses, concise actionable text,
+  and mobile layouts; avoid duplicating information already in the UI.
+- Do not add notification channels (including Telegram/mobile push) unless requested.
+- For features, state the approach, implement, update tests, and run relevant checks.
+  Summarize changes, decisions, tests, remaining issues, and pre-existing failures.
+- Ask about ambiguity that materially changes architecture or user-visible behavior;
+  follow existing patterns for minor implementation decisions.
