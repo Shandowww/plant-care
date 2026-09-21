@@ -12,6 +12,7 @@ from .care_profiles import watering_instructions
 from .schemas import PlantDoctorResponse, PlantDoctorWateringGuidance
 
 MODEL_ID = "@cf/meta/llama-3.2-11b-vision-instruct"
+NORMALIZER_MODEL_ID = "@cf/meta/llama-3.1-8b-instruct"
 PROVIDER_NAME = "Cloudflare Workers AI"
 DISCLAIMER = (
     "AI visual guidance can be wrong. Confirm suggestions against the plant, its sensors, "
@@ -145,48 +146,100 @@ class CloudflarePlantDoctor:
         except (httpx2.TimeoutException, httpx2.NetworkError) as exc:
             raise PlantDoctorProviderError("unavailable") from exc
 
+        raw_response, neurons = _provider_result(response)
         try:
-            payload = response.json()
-        except ValueError as exc:
-            if response.status_code in {401, 403}:
-                raise PlantDoctorProviderError("credentials") from exc
-            if response.status_code == 429:
-                raise PlantDoctorProviderError("rate_limit") from exc
-            raise PlantDoctorProviderError(
-                "invalid_response" if response.is_success else "unavailable"
-            ) from exc
-        if not response.is_success or not isinstance(payload, dict) or not payload.get("success"):
-            if _has_error_code(payload, 3036):
-                raise PlantDoctorProviderError("quota")
-            if _has_error_code(payload, 3040):
-                raise PlantDoctorProviderError("capacity")
-            if any(_has_error_code(payload, code) for code in (3023, 5016, 5018, 5035, 3041)):
-                raise PlantDoctorProviderError("configuration")
-            if _has_error_code(payload, 10000) or _has_error_code(payload, 9109):
-                raise PlantDoctorProviderError("credentials")
-            if response.status_code in {401, 403}:
-                raise PlantDoctorProviderError("credentials")
-            if response.status_code == 429:
-                raise PlantDoctorProviderError("rate_limit")
-            if _has_error_message(payload, "json mode"):
-                raise PlantDoctorProviderError("invalid_response")
-            raise PlantDoctorProviderError("unavailable")
+            return _assessment(raw_response, neurons, context)
+        except PlantDoctorProviderError as exc:
+            if exc.kind != "invalid_response":
+                raise
+        normalized, normalizer_neurons = await self._normalize(raw_response)
+        total_neurons = sum(value for value in (neurons, normalizer_neurons) if value is not None)
+        return _assessment(normalized, total_neurons or None, context)
 
-        result = payload.get("result")
-        if not isinstance(result, dict):
-            raise PlantDoctorProviderError("invalid_response")
-        response_value = result.get("response")
-        if isinstance(response_value, dict):
-            raw_response = json.dumps(response_value)
-        elif isinstance(response_value, str):
-            raw_response = response_value
-        else:
-            raise PlantDoctorProviderError("invalid_response")
-        neurons = None
-        usage = result.get("usage")
-        if isinstance(usage, dict) and isinstance(usage.get("neurons"), int | float):
-            neurons = float(usage["neurons"])
-        return _assessment(raw_response, neurons, context)
+    async def _normalize(self, raw_response: str) -> tuple[str, float | None]:
+        url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/"
+            f"{NORMALIZER_MODEL_ID}"
+        )
+        try:
+            async with httpx2.AsyncClient(timeout=30.0, transport=self.transport) as client:
+                response = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {self.api_token}"},
+                    json={
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Convert the vision assessment to the requested JSON schema. "
+                                    "Preserve its claims and uncertainty; do not add a diagnosis. "
+                                    "Use identity_status=match only when the source says "
+                                    "visible evidence supports the supplied identity. Use mismatch "
+                                    "only for a clear conflict; otherwise uncertain. On mismatch "
+                                    "or uncertainty, leave possible_issues, next_steps, and all "
+                                    "watering_guidance list empty."
+                                ),
+                            },
+                            {"role": "user", "content": raw_response[:8_000]},
+                        ],
+                        "response_format": _response_format(),
+                        "max_tokens": 900,
+                        "temperature": 0,
+                    },
+                )
+        except (httpx2.TimeoutException, httpx2.NetworkError) as exc:
+            raise PlantDoctorProviderError("unavailable") from exc
+        return _provider_result(response)
+
+
+def _response_format() -> dict[str, Any]:
+    short_text = {"type": "string", "maxLength": 300}
+    short_list = {"type": "array", "items": short_text, "maxItems": 3}
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "type": "object",
+            "properties": {
+                "identity_status": {
+                    "type": "string",
+                    "enum": ["match", "mismatch", "uncertain"],
+                },
+                "identity_explanation": short_text,
+                "summary": short_text,
+                "observations": short_list,
+                "possible_issues": short_list,
+                "next_steps": short_list,
+                "watering_guidance": {
+                    "type": "object",
+                    "properties": {
+                        "assessment": short_text,
+                        "notification_point": short_text,
+                        "manual_checks": short_list,
+                        "watering_steps": short_list,
+                        "drying_steps": short_list,
+                    },
+                    "required": [
+                        "assessment",
+                        "notification_point",
+                        "manual_checks",
+                        "watering_steps",
+                        "drying_steps",
+                    ],
+                },
+                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            },
+            "required": [
+                "identity_status",
+                "identity_explanation",
+                "summary",
+                "observations",
+                "possible_issues",
+                "next_steps",
+                "watering_guidance",
+                "confidence",
+            ],
+        },
+    }
 
 
 def _prompt(context: PlantDoctorContext) -> str:
@@ -353,6 +406,51 @@ def _has_error_message(payload: Any, needle: str) -> bool:
         isinstance(error, dict) and needle.casefold() in str(error.get("message", "")).casefold()
         for error in payload["errors"]
     )
+
+
+def _provider_result(response: httpx2.Response) -> tuple[str, float | None]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        if response.status_code in {401, 403}:
+            raise PlantDoctorProviderError("credentials") from exc
+        if response.status_code == 429:
+            raise PlantDoctorProviderError("rate_limit") from exc
+        raise PlantDoctorProviderError(
+            "invalid_response" if response.is_success else "unavailable"
+        ) from exc
+    if not response.is_success or not isinstance(payload, dict) or not payload.get("success"):
+        if _has_error_code(payload, 3036):
+            raise PlantDoctorProviderError("quota")
+        if _has_error_code(payload, 3040):
+            raise PlantDoctorProviderError("capacity")
+        if any(_has_error_code(payload, code) for code in (3023, 5016, 5018, 5035, 3041)):
+            raise PlantDoctorProviderError("configuration")
+        if _has_error_code(payload, 10000) or _has_error_code(payload, 9109):
+            raise PlantDoctorProviderError("credentials")
+        if response.status_code in {401, 403}:
+            raise PlantDoctorProviderError("credentials")
+        if response.status_code == 429:
+            raise PlantDoctorProviderError("rate_limit")
+        if _has_error_message(payload, "json mode"):
+            raise PlantDoctorProviderError("invalid_response")
+        raise PlantDoctorProviderError("unavailable")
+
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise PlantDoctorProviderError("invalid_response")
+    response_value = result.get("response")
+    if isinstance(response_value, dict):
+        raw_response = json.dumps(response_value)
+    elif isinstance(response_value, str):
+        raw_response = response_value
+    else:
+        raise PlantDoctorProviderError("invalid_response")
+    neurons = None
+    usage = result.get("usage")
+    if isinstance(usage, dict) and isinstance(usage.get("neurons"), int | float):
+        neurons = float(usage["neurons"])
+    return raw_response, neurons
 
 
 def _assessment(

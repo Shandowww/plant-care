@@ -215,19 +215,65 @@ async def test_cloudflare_prompt_includes_compact_outcome_history() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unstructured_provider_response_is_rejected_not_shown_as_raw_prose() -> None:
-    async def handler(_request: httpx2.Request) -> httpx2.Response:
+async def test_unstructured_vision_response_is_normalized_without_inventing_identity() -> None:
+    requests = 0
+
+    async def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            assert request.url.path.endswith(f"/ai/run/{MODEL_ID}")
+            return httpx2.Response(
+                200,
+                json={
+                    "success": True,
+                    "result": {
+                        "response": "The leaves look wilted, but identity is not established.",
+                        "usage": {"neurons": 8.5},
+                    },
+                },
+            )
+        body = json.loads(request.content)
+        assert request.url.path.endswith("/ai/run/@cf/meta/llama-3.1-8b-instruct")
+        assert body["response_format"]["type"] == "json_schema"
+        assert "The leaves look wilted" in body["messages"][1]["content"]
         return httpx2.Response(
             200,
-            json={"success": True, "result": {"response": "Inspect the leaves closely."}},
+            json={
+                "success": True,
+                "result": {
+                    "response": {
+                        "identity_status": "uncertain",
+                        "identity_explanation": "The source did not verify the identity.",
+                        "summary": "Photo identity requires confirmation.",
+                        "observations": ["Leaves appear wilted."],
+                        "possible_issues": [],
+                        "next_steps": [],
+                        "watering_guidance": {
+                            "assessment": "Care advice is withheld.",
+                            "notification_point": "No sensor setting was changed.",
+                            "manual_checks": [],
+                            "watering_steps": [],
+                            "drying_steps": [],
+                        },
+                        "confidence": "low",
+                    },
+                    "usage": {"neurons": 1.5},
+                },
+            },
         )
 
     doctor = CloudflarePlantDoctor(
         "account-id", "private-token", transport=httpx2.MockTransport(handler)
     )
 
-    with pytest.raises(PlantDoctorProviderError, match="invalid_response"):
-        await doctor.analyze(b"jpeg", context())
+    result = await doctor.analyze(b"jpeg", context())
+
+    assert requests == 2
+    assert result.identity_status == "uncertain"
+    assert result.observations == ["Leaves appear wilted."]
+    assert result.next_steps == []
+    assert result.neurons == 10
 
 
 @pytest.mark.asyncio

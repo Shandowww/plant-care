@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.7
+
+- Recover malformed Vision-model replies through a structured-output text
+  normalizer while preserving identity uncertainty and care safeguards.
+- Include fallback processing in the reported neuron usage.
+
 ## 0.10.6
 
 - Stop requesting unsupported JSON Mode from the Cloudflare Vision model while
