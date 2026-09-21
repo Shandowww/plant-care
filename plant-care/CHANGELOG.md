@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.6
+
+- Stop requesting unsupported JSON Mode from the Cloudflare Vision model while
+  retaining strict plain-JSON assessment validation.
+- Replace the diagnostic-photo overlay label with a single mobile-safe file
+  chooser button.
+
 ## 0.10.5
 
 - Use Cloudflare Workers AI JSON mode for Plant Doctor and accept its structured

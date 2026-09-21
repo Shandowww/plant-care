@@ -24,7 +24,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   archivePlant,
@@ -2108,6 +2108,7 @@ function DoctorDialog({
   const [savingFeedback, setSavingFeedback] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const diagnosticPhotoInputRef = useRef<HTMLInputElement>(null);
   const photoPreview = usePhotoPreview(photoFile);
 
   useEffect(() => {
@@ -2263,20 +2264,24 @@ function DoctorDialog({
                   src={photoPreview}
                   alt={`Photo to diagnose for ${plant.display_name}`}
                 />
-                <label className="photo-picker doctor-photo-replace">
+                <button
+                  className="photo-picker doctor-photo-replace"
+                  type="button"
+                  onClick={() => diagnosticPhotoInputRef.current?.click()}
+                >
                   <ImagePlus size={17} />
                   <span>
                     <strong>Choose a different photo</strong>
                     <small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small>
                   </span>
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-                    onChange={(event) =>
-                      setPhotoFile(event.target.files?.[0] ?? null)
-                    }
-                  />
-                </label>
+                </button>
+                <input
+                  ref={diagnosticPhotoInputRef}
+                  className="visually-hidden"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+                />
               </div>
             ) : (
               <div className="doctor-empty">

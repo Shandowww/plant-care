@@ -73,8 +73,7 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
             in body["messages"][1]["content"]
         )
         assert "after verifying the photo identity" in body["messages"][1]["content"]
-        assert body["response_format"]["type"] == "json_schema"
-        assert "identity_status" in body["response_format"]["json_schema"]["required"]
+        assert "response_format" not in body
         return httpx2.Response(
             200,
             json={

@@ -123,7 +123,8 @@ class CloudflarePlantDoctor:
                                     "the saved identity. Name the plant only when supported; make "
                                     "advice specific to that taxon when possible. "
                                     "Do not claim certainty, prescribe pesticides, or treat sensor "
-                                    "values as visual facts. Return only one JSON object with keys "
+                                    "values as visual facts. Return JSON only. Do not include "
+                                    "Markdown, code fences, or an introduction. It must have keys "
                                     "identity_status, identity_explanation, summary, observations, "
                                     "possible_issues, next_steps, "
                                     "watering_guidance, confidence. watering_guidance must be "
@@ -137,7 +138,6 @@ class CloudflarePlantDoctor:
                             {"role": "user", "content": _prompt(context)},
                         ],
                         "image": f"data:image/jpeg;base64,{image}",
-                        "response_format": _response_format(),
                         "max_tokens": 1100,
                         "temperature": 0.2,
                     },
@@ -187,56 +187,6 @@ class CloudflarePlantDoctor:
         if isinstance(usage, dict) and isinstance(usage.get("neurons"), int | float):
             neurons = float(usage["neurons"])
         return _assessment(raw_response, neurons, context)
-
-
-def _response_format() -> dict[str, Any]:
-    short_text = {"type": "string", "maxLength": 300}
-    short_list = {"type": "array", "items": short_text, "maxItems": 3}
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "type": "object",
-            "properties": {
-                "identity_status": {
-                    "type": "string",
-                    "enum": ["match", "mismatch", "uncertain"],
-                },
-                "identity_explanation": short_text,
-                "summary": short_text,
-                "observations": short_list,
-                "possible_issues": short_list,
-                "next_steps": short_list,
-                "watering_guidance": {
-                    "type": "object",
-                    "properties": {
-                        "assessment": short_text,
-                        "notification_point": short_text,
-                        "manual_checks": short_list,
-                        "watering_steps": short_list,
-                        "drying_steps": short_list,
-                    },
-                    "required": [
-                        "assessment",
-                        "notification_point",
-                        "manual_checks",
-                        "watering_steps",
-                        "drying_steps",
-                    ],
-                },
-                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-            },
-            "required": [
-                "identity_status",
-                "identity_explanation",
-                "summary",
-                "observations",
-                "possible_issues",
-                "next_steps",
-                "watering_guidance",
-                "confidence",
-            ],
-        },
-    }
 
 
 def _prompt(context: PlantDoctorContext) -> str:
