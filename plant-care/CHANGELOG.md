@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.5
+
+- Use Cloudflare Workers AI JSON mode for Plant Doctor and accept its structured
+  object response, reducing malformed-model-response failures.
+- Distinguish an unusable AI response from network/service availability without
+  recording the diagnostic photo, token, or model text in logs.
+
 ## 0.10.4
 
 - Replace the fixed 24-hour wet alert with per-pot drying-cycle learning,

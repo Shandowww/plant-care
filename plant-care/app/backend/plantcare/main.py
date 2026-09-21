@@ -866,6 +866,16 @@ def create_app(
             ) from exc
         except PlantDoctorProviderError as exc:
             logger.warning("plant_doctor_request_failed", provider="cloudflare", reason=exc.kind)
+            if exc.kind == "invalid_response":
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=(
+                        "Cloudflare responded, but the AI did not return the structured plant "
+                        "assessment PlantCare requires. No care advice was saved or added. Try "
+                        "again; if it repeats, check the add-on log for "
+                        "plant_doctor_request_failed with reason=invalid_response."
+                    ),
+                ) from exc
             if exc.kind == "quota":
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,

@@ -74,7 +74,13 @@ class PlantDoctorProviderError(RuntimeError):
     def __init__(
         self,
         kind: Literal[
-            "credentials", "quota", "capacity", "rate_limit", "configuration", "unavailable"
+            "credentials",
+            "quota",
+            "capacity",
+            "rate_limit",
+            "configuration",
+            "invalid_response",
+            "unavailable",
         ],
     ) -> None:
         super().__init__(kind)
@@ -131,6 +137,7 @@ class CloudflarePlantDoctor:
                             {"role": "user", "content": _prompt(context)},
                         ],
                         "image": f"data:image/jpeg;base64,{image}",
+                        "response_format": _response_format(),
                         "max_tokens": 1100,
                         "temperature": 0.2,
                     },
@@ -145,7 +152,9 @@ class CloudflarePlantDoctor:
                 raise PlantDoctorProviderError("credentials") from exc
             if response.status_code == 429:
                 raise PlantDoctorProviderError("rate_limit") from exc
-            raise PlantDoctorProviderError("unavailable") from exc
+            raise PlantDoctorProviderError(
+                "invalid_response" if response.is_success else "unavailable"
+            ) from exc
         if not response.is_success or not isinstance(payload, dict) or not payload.get("success"):
             if _has_error_code(payload, 3036):
                 raise PlantDoctorProviderError("quota")
@@ -159,16 +168,75 @@ class CloudflarePlantDoctor:
                 raise PlantDoctorProviderError("credentials")
             if response.status_code == 429:
                 raise PlantDoctorProviderError("rate_limit")
+            if _has_error_message(payload, "json mode"):
+                raise PlantDoctorProviderError("invalid_response")
             raise PlantDoctorProviderError("unavailable")
 
         result = payload.get("result")
-        if not isinstance(result, dict) or not isinstance(result.get("response"), str):
-            raise PlantDoctorProviderError("unavailable")
+        if not isinstance(result, dict):
+            raise PlantDoctorProviderError("invalid_response")
+        response_value = result.get("response")
+        if isinstance(response_value, dict):
+            raw_response = json.dumps(response_value)
+        elif isinstance(response_value, str):
+            raw_response = response_value
+        else:
+            raise PlantDoctorProviderError("invalid_response")
         neurons = None
         usage = result.get("usage")
         if isinstance(usage, dict) and isinstance(usage.get("neurons"), int | float):
             neurons = float(usage["neurons"])
-        return _assessment(result["response"], neurons, context)
+        return _assessment(raw_response, neurons, context)
+
+
+def _response_format() -> dict[str, Any]:
+    short_text = {"type": "string", "maxLength": 300}
+    short_list = {"type": "array", "items": short_text, "maxItems": 3}
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "type": "object",
+            "properties": {
+                "identity_status": {
+                    "type": "string",
+                    "enum": ["match", "mismatch", "uncertain"],
+                },
+                "identity_explanation": short_text,
+                "summary": short_text,
+                "observations": short_list,
+                "possible_issues": short_list,
+                "next_steps": short_list,
+                "watering_guidance": {
+                    "type": "object",
+                    "properties": {
+                        "assessment": short_text,
+                        "notification_point": short_text,
+                        "manual_checks": short_list,
+                        "watering_steps": short_list,
+                        "drying_steps": short_list,
+                    },
+                    "required": [
+                        "assessment",
+                        "notification_point",
+                        "manual_checks",
+                        "watering_steps",
+                        "drying_steps",
+                    ],
+                },
+                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            },
+            "required": [
+                "identity_status",
+                "identity_explanation",
+                "summary",
+                "observations",
+                "possible_issues",
+                "next_steps",
+                "watering_guidance",
+                "confidence",
+            ],
+        },
+    }
 
 
 def _prompt(context: PlantDoctorContext) -> str:
@@ -328,6 +396,15 @@ def _has_error_code(payload: Any, code: int) -> bool:
     return any(isinstance(error, dict) and error.get("code") == code for error in payload["errors"])
 
 
+def _has_error_message(payload: Any, needle: str) -> bool:
+    if not isinstance(payload, dict) or not isinstance(payload.get("errors"), list):
+        return False
+    return any(
+        isinstance(error, dict) and needle.casefold() in str(error.get("message", "")).casefold()
+        for error in payload["errors"]
+    )
+
+
 def _assessment(
     raw_response: str, neurons: float | None, context: PlantDoctorContext
 ) -> PlantDoctorResponse:
@@ -343,7 +420,7 @@ def _assessment(
         except json.JSONDecodeError:
             parsed = None
     if not isinstance(parsed, dict):
-        raise PlantDoctorProviderError("unavailable")
+        raise PlantDoctorProviderError("invalid_response")
     identity_status = parsed.get("identity_status")
     if identity_status not in ("match", "mismatch", "uncertain"):
         identity_status = "uncertain"

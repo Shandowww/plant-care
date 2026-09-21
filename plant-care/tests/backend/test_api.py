@@ -85,7 +85,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.10.3",
+        "version": "0.10.5",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -467,6 +467,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         ("configuration", 403, "model agreement"),
         ("capacity", 503, "out of capacity"),
         ("rate_limit", 429, "too many requests"),
+        ("invalid_response", 502, "did not return the structured"),
         ("unavailable", 503, "could not be reached"),
     ],
 )

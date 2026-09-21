@@ -73,6 +73,8 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
             in body["messages"][1]["content"]
         )
         assert "after verifying the photo identity" in body["messages"][1]["content"]
+        assert body["response_format"]["type"] == "json_schema"
+        assert "identity_status" in body["response_format"]["json_schema"]["required"]
         return httpx2.Response(
             200,
             json={
@@ -225,8 +227,42 @@ async def test_unstructured_provider_response_is_rejected_not_shown_as_raw_prose
         "account-id", "private-token", transport=httpx2.MockTransport(handler)
     )
 
-    with pytest.raises(PlantDoctorProviderError, match="unavailable"):
+    with pytest.raises(PlantDoctorProviderError, match="invalid_response"):
         await doctor.analyze(b"jpeg", context())
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_json_mode_object_response_is_supported() -> None:
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "success": True,
+                "result": {
+                    "response": {
+                        "identity_status": "match",
+                        "identity_explanation": "Leaf shape is consistent.",
+                        "summary": "The visible foliage is generally healthy.",
+                        "observations": ["Green leaves"],
+                        "possible_issues": [],
+                        "next_steps": ["Continue regular monitoring."],
+                        "watering_guidance": {
+                            "assessment": "No immediate watering change is indicated.",
+                            "notification_point": "Use the calibrated sensor threshold.",
+                            "manual_checks": [],
+                            "watering_steps": [],
+                            "drying_steps": [],
+                        },
+                        "confidence": "medium",
+                    }
+                },
+            },
+        )
+
+    doctor = CloudflarePlantDoctor(
+        "account-id", "private-token", transport=httpx2.MockTransport(handler)
+    )
+    assert (await doctor.analyze(b"jpeg", context())).identity_status == "match"
 
 
 @pytest.mark.asyncio
