@@ -1,4 +1,5 @@
 import gardenerUrl from "./gardener.svg";
+import { plantStatusLabel } from "./plant-status";
 import {
   Bell,
   Check,
@@ -1711,7 +1712,7 @@ function PlantDetailDialog({
           </figure>
         )}
         <span className={`status-pill status-pill--${plant.state}`}>
-          {plant.state.replaceAll("_", " ")}
+          {plantStatusLabel(plant)}
         </span>
         <p className="eyebrow">
           {plant.location}
@@ -1774,6 +1775,7 @@ function PlantDetailDialog({
         <PlantTipsSection plant={plant} visit={tipVisit} />
         <section className="detail-actions">
           <h3>Care actions</h3>
+          {plant.drying_note && <p className="drying-note">{plant.drying_note}</p>}
           {openActions.map((action) => {
             const sensorManaged = autoManagedActionTypes.has(action.type);
             return (
@@ -2987,6 +2989,7 @@ function EditPlantDialog({
     moisture_check_threshold_override:
       plant.moisture_check_threshold_override,
     moisture_wet_threshold_override: plant.moisture_wet_threshold_override,
+    wet_duration_hours_override: plant.wet_duration_hours_override ?? null,
   });
   const [areas, setAreas] = useState<string[]>([plant.location]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -3316,15 +3319,25 @@ function EditPlantDialog({
                       })
                     }
                   />
-                  <span>% for 24h</span>
+                  <span>% or above</span>
                 </span>
               </label>
             </div>
             <small>
-              {plant.care_profile_basis}. Low moisture opens a check after
-              three fresh readings; prolonged wetness opens a drying check
-              after 24 hours. Confirm the soil manually before watering.
+              {plant.care_profile_basis}. Watering alerts need three fresh readings.
+              Wetness is compared with this pot's drying history after three complete
+              cycles. A 14-day high plateau prompts review, not an overwatering diagnosis.
             </small>
+            <label>
+              Optional wet-duration alert (hours)
+              <input type="number" min="24" max="720" step="1"
+                placeholder="Automatic — learn this pot"
+                value={form.wet_duration_hours_override ?? ""}
+                onChange={(event) => setForm({ ...form,
+                  wet_duration_hours_override: event.target.value === "" ? null : Number(event.target.value),
+                })} />
+              <small>Leave blank for automatic tracking. A custom timer starts while moisture is above the wet threshold; the 14-day review still applies.</small>
+            </label>
           </fieldset>
           {message && (
             <p className="inline-error" role="alert">

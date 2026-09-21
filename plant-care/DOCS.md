@@ -203,13 +203,35 @@ indoor or outdoor container guidance until their species is entered.
 
 ## Sensor responsiveness and Home Assistant notifications
 
-PlantCare checks Home Assistant's value-change timestamp for every mapped
-moisture, temperature, and illuminance entity. When a valid sensor value has not
-changed for 72 hours, the plant is marked **Sensor issue** and a deduplicated
-**Check sensor** action is added to the care queue. The action remains
-sensor-managed and completes automatically once Home Assistant reports a fresh
-value change. Battery entities are deliberately excluded because a healthy
-battery percentage can legitimately remain unchanged for days or weeks.
+For moisture, PlantCare checks the latest Home Assistant report timestamp
+(falling back to last_updated). A constant value, including 100%, is not alone a
+sensor failure. No recent report for 72 hours creates a reporting warning that
+clears after a fresh report. Temperature and illuminance still use value-change
+timestamps. Battery values are excluded from unchanged-value monitoring.
+
+### Per-pot drying tracking
+
+High moisture alone no longer starts a fixed 24-hour alert. A rise of at least
+15 percentage points into the wet band within 24 hours suggests watering and
+shows **Recently watered** for 48 hours. It does not prove watering occurred.
+Three complete observed cycles (from that rise back to the watering threshold
+plus five points) establish a provisional median of the latest five cycles.
+While still high, a cycle exceeding 1.5 times that median (minimum 72 hours)
+prompts a drainage review. Gaps longer than 72 hours invalidate a pending cycle.
+Learning uses up to 120 days of readings for the currently mapped sensor.
+
+Before enough history exists, the app shows **Learning drying pattern**.
+After 72 hours at or above the wet band with at least three recent readings and
+less than a five-point decline, it shows **Still very wet**. This is an early
+informational status only: it creates no action or notification and does not
+diagnose overwatering. A meaningful decline, fewer fresh readings, or lower
+moisture clears it.
+An optional wet-duration timer in **Edit plant** can override the learned timer.
+A 14-day high plateau still prompts review regardless of the baseline or custom
+timer, to avoid calling a consistently poor drying pattern healthy. These are
+trial monitoring heuristics, not species-specific root-health diagnoses. Wet
+alerts require at least three readings; sensor values need local calibration.
+Existing alerts from the old timer close automatically if no longer warranted.
 
 The threshold can be changed from 24 to 720 hours under **Home Assistant →
 Settings → Apps → Plant Care Dashboard → Configuration** using

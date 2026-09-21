@@ -403,7 +403,7 @@ def create_app(
         for plant, action_title in rows:
             effective_state = plant.state
             if action_title is None and plant.state in {"action_needed", "overdue"}:
-                effective_state = "watch" if plant.moisture_status in {"low", "high"} else "good"
+                effective_state = "watch" if plant.moisture_status == "low" else "good"
             plants.append(
                 PlantSummary.model_validate(plant).model_copy(
                     update={
@@ -549,6 +549,7 @@ def create_app(
             environment_type=payload.environment_type,
             moisture_check_threshold_override=payload.moisture_check_threshold_override,
             moisture_wet_threshold_override=payload.moisture_wet_threshold_override,
+            wet_duration_hours_override=payload.wet_duration_hours_override,
             state="sensor_issue",
             moisture_status="unknown",
             temperature_status="unknown",
@@ -603,6 +604,7 @@ def create_app(
             "display_name": plant.display_name,
             "location": plant.location,
             "specific_position": plant.specific_position,
+            "wet_duration_hours_override": plant.wet_duration_hours_override,
             "common_name": plant.common_name,
             "scientific_name": plant.scientific_name,
             "environment_type": plant.environment_type,

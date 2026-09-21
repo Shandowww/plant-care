@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .care_profiles import watering_instructions
+from .drying import drying_assessment
 from .models import ActionStatus, AppSetting, AuditEvent, CareAction, Plant, Reading
 from .schemas import HomeAssistantEntity
 
@@ -29,8 +30,6 @@ LOW_MOISTURE_ACTION_PREFIX = "ha:moisture-low:"
 WET_MOISTURE_ACTION_PREFIX = "ha:moisture-wet:"
 LOW_BATTERY_ACTION_PREFIX = "ha:battery-low:"
 LOW_MOISTURE_CONFIRMATIONS = 3
-WET_MOISTURE_CONFIRMATIONS = 3
-WET_MOISTURE_DURATION = timedelta(hours=24)
 MOISTURE_RECOVERY_HYSTERESIS = 5
 LOW_BATTERY_THRESHOLD = 20
 BATTERY_RECOVERY_THRESHOLD = 25
@@ -263,15 +262,18 @@ async def sync_mapped_readings(
             if normalized is None:
                 invalid_readings += 1
                 continue
-            observed_at = entity.last_updated or datetime.now(UTC)
+            observed_at = entity.last_reported or entity.last_updated or now
             if observed_at.tzinfo is None:
                 observed_at = observed_at.replace(tzinfo=UTC)
             idempotency_key = f"{plant.id}|{metric}|{entity.entity_id}|{observed_at.isoformat()}"
             pending.append((plant, metric, entity, normalized, observed_at, idempotency_key))
-            last_changed = entity.last_changed
+            last_changed = observed_at if metric == "moisture" else entity.last_changed
             if metric in STALE_METRICS and last_changed is not None:
                 if last_changed.tzinfo is None:
                     last_changed = last_changed.replace(tzinfo=UTC)
+                # Moisture can legitimately plateau; use last report, not value change.
+                if metric == "moisture":
+                    last_changed = observed_at
                 if now - last_changed >= stale_after:
                     stale_readings[stale_key] = (plant, metric, entity, normalized, last_changed)
                 else:
@@ -394,6 +396,11 @@ async def sync_mapped_readings(
             f"The mapped {metric_label} sensor has remained at {value} for "
             f"approximately {age_hours} hours."
         )
+        if metric == "moisture":
+            observation = (
+                f"The mapped moisture sensor has no recent report (approximately {age_hours} "
+                "hours). This may be a reporting issue, not proof the sensor has failed."
+            )
         recommendation = (
             "Check its battery, placement, Zigbee connection, and whether its value changes "
             "during a controlled test."
@@ -496,6 +503,8 @@ async def sync_mapped_readings(
     plants_by_id = {plant.id: plant for plant in plants}
     for plant in plants:
         mapping = plant.entity_mapping
+        plant.drying_status = None
+        plant.drying_note = None
         if mapping is None:
             continue
 
@@ -522,7 +531,7 @@ async def sync_mapped_readings(
                                 Reading.plant_id == plant.id,
                                 Reading.entity_id == moisture_entity_id,
                                 Reading.metric == "moisture",
-                                Reading.observed_at >= now - stale_after,
+                                Reading.observed_at >= now - timedelta(days=120),
                             )
                             .order_by(Reading.observed_at.desc())
                         )
@@ -530,18 +539,21 @@ async def sync_mapped_readings(
                 )
                 low_threshold = plant.moisture_check_threshold
                 wet_threshold = plant.moisture_wet_threshold
-                low_confirmed = len(recent_moisture) >= LOW_MOISTURE_CONFIRMATIONS and all(
+                fresh_moisture = [
+                    reading
+                    for reading in recent_moisture
+                    if as_utc(reading.observed_at) >= now - stale_after
+                ]
+                low_confirmed = len(fresh_moisture) >= LOW_MOISTURE_CONFIRMATIONS and all(
                     reading.value <= low_threshold
-                    for reading in recent_moisture[:LOW_MOISTURE_CONFIRMATIONS]
+                    for reading in fresh_moisture[:LOW_MOISTURE_CONFIRMATIONS]
                 )
-                high_streak = []
-                for reading in recent_moisture:
-                    if reading.value < wet_threshold:
-                        break
-                    high_streak.append(reading)
-                wet_confirmed = (
-                    len(high_streak) >= WET_MOISTURE_CONFIRMATIONS
-                    and now - as_utc(high_streak[-1].observed_at) >= WET_MOISTURE_DURATION
+                plant.drying_status, plant.drying_note, wet_confirmed = drying_assessment(
+                    [(reading.observed_at, reading.value) for reading in recent_moisture],
+                    now,
+                    low_threshold,
+                    wet_threshold,
+                    plant.wet_duration_hours_override,
                 )
 
                 if low_confirmed:
@@ -581,19 +593,11 @@ async def sync_mapped_readings(
 
                 if wet_confirmed:
                     plant.moisture_status = "high"
-                    wet_hours = max(
-                        int((now - as_utc(high_streak[-1].observed_at)).total_seconds() // 3600),
-                        24,
-                    )
                     spec = ManagedActionSpec(
                         key=wet_key,
                         action_type="prolonged_wet",
-                        title="Help soil dry safely",
-                        observation=(
-                            f"Soil moisture has remained at or above this plant's "
-                            f"{wet_threshold:g}% prolonged-wet trigger for at least {wet_hours} "
-                            "hours."
-                        ),
+                        title="Review slow drying",
+                        observation=plant.drying_note,
                         recommendation=(
                             "Pause watering, empty any standing water, check drainage, and improve "
                             "appropriate light or airflow. Inspect roots before repotting."
@@ -607,7 +611,7 @@ async def sync_mapped_readings(
                     managed_actions_by_key[wet_key] = action
                     if event:
                         notification_events.append(event)
-                elif moisture_value.value <= (wet_threshold - MOISTURE_RECOVERY_HYSTERESIS):
+                else:
                     event = complete_managed_action(
                         session,
                         managed_actions_by_key.get(wet_key),
@@ -715,7 +719,7 @@ async def sync_mapped_readings(
                 else "action_needed"
                 if remaining
                 else "watch"
-                if plant.moisture_status in {"low", "high"}
+                if plant.moisture_status == "low"
                 else "good"
             )
 

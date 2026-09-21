@@ -188,6 +188,7 @@ class HomeAssistantClient:
             device_id=metadata[1] if metadata else None,
             last_changed=HomeAssistantClient._parse_timestamp(item.get("last_changed")),
             last_updated=HomeAssistantClient._parse_timestamp(item.get("last_updated")),
+            last_reported=HomeAssistantClient._parse_timestamp(item.get("last_reported")),
         )
 
     async def ingress_url(self) -> str:

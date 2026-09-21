@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 import type { Plant, PlantState } from "./types";
 import { plantImage } from "./plant-images";
+import { plantStatusLabel } from "./plant-status";
 
 const stateContent: Record<
   PlantState,
@@ -22,6 +23,7 @@ const stateContent: Record<
   overdue: { label: "Overdue", icon: Clock3 },
   sensor_issue: { label: "Sensor issue", icon: WifiOff },
 };
+
 
 const visualVariant: Record<string, string> = {
   "Snake Plant": "spikes",
@@ -93,12 +95,13 @@ export function PlantCard({
     >
       <div className="plant-card__visual">
         <BotanicalVisual plant={plant} />
-        <span className={`status-pill status-pill--${plant.state}`}>
+        <span className={`status-pill status-pill--${plant.drying_status === "wet_watch" ? "watch" : plant.state}`}>
           <StateIcon size={14} strokeWidth={2.4} aria-hidden="true" />
-          {state.label}
+          {plantStatusLabel(plant)}
         </span>
       </div>
       <div className="plant-card__body">
+        {plant.drying_note && <p className="drying-note">{plant.drying_note}</p>}
         <div className="plant-card__identity">
           <div>
             <h2 id={`plant-${plant.id}`}>{plant.display_name}</h2>
@@ -174,11 +177,10 @@ export function PlantCard({
                 Watering check at or below {plant.moisture_check_threshold}%
               </strong>
               <span>
-                Prolonged-wet warning at or above {plant.moisture_wet_threshold}%
-                for 24 hours. {plant.care_profile_basis}
+                Wet tracking at or above {plant.moisture_wet_threshold}%.
+                Alerts use drying history or your custom duration. {plant.care_profile_basis}
                 {plant.moisture_thresholds_custom ? " · custom thresholds" : " · starting profile"}.
-                Confirm the soil manually because readings vary by sensor,
-                substrate, and placement.
+                Calibrate thresholds for your sensor, substrate, and placement.
               </span>
             </div>
           )}

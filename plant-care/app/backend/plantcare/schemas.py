@@ -32,6 +32,7 @@ class HomeAssistantEntity(BaseModel):
     device_id: str | None = None
     last_changed: datetime | None = None
     last_updated: datetime | None = None
+    last_reported: datetime | None = None
 
 
 class HomeAssistantEntityListResponse(BaseModel):
@@ -68,6 +69,9 @@ class ReadingListResponse(BaseModel):
 
 
 class PlantSummary(BaseModel):
+    drying_status: str | None = None
+    drying_note: str | None = None
+    wet_duration_hours_override: float | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -190,6 +194,7 @@ class PlantDoctorFeedbackRequest(BaseModel):
 
 
 class PlantCreateRequest(BaseModel):
+    wet_duration_hours_override: float | None = Field(default=None, ge=24, le=720)
     display_name: str = Field(min_length=1, max_length=120)
     location: str = Field(min_length=1, max_length=120)
     specific_position: str | None = Field(default=None, max_length=160)
@@ -204,6 +209,7 @@ class PlantCreateRequest(BaseModel):
 
 
 class PlantUpdateRequest(BaseModel):
+    wet_duration_hours_override: float | None = Field(default=None, ge=24, le=720)
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     location: str | None = Field(default=None, min_length=1, max_length=120)
     specific_position: str | None = Field(default=None, max_length=160)

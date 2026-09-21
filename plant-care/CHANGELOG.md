@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.4
+
+- Replace the fixed 24-hour wet alert with per-pot drying-cycle learning,
+  likely-watering labels, optional wet-duration overrides, and a 14-day review backstop.
+- Show an early non-notifying "Still very wet" status after 72 hours without a
+  meaningful decline, while learning or tracking a pot's normal dry-down.
+- Explain drying status on cards and details; keep dry-soil watering alerts unchanged.
+- Use Home Assistant report freshness for moisture sensor warnings so constant
+  moisture readings alone do not imply sensor failure.
+- Add migration 0008 for drying status and per-plant duration settings.
+
 ## 0.10.3
 
 - Bundle the gardener illustration so it loads behind Home Assistant ingress.

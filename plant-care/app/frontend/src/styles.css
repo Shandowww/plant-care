@@ -2133,6 +2133,14 @@ button {
   font-size: 10px;
   line-height: 1.5;
 }
+.drying-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  padding: 10px;
+  background: #eef4ef;
+  border-radius: 8px;
+}
 .doctor-result {
   display: grid;
   gap: 11px;

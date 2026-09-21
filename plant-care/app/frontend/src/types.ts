@@ -6,6 +6,9 @@ export type PlantState =
   | "sensor_issue";
 
 export interface Plant {
+  drying_status?: string | null;
+  drying_note?: string | null;
+  wet_duration_hours_override?: number | null;
   id: string;
   display_name: string;
   location: string;
@@ -76,6 +79,7 @@ export interface PlantResponse {
 }
 
 export interface PlantCreate {
+  wet_duration_hours_override?: number | null;
   display_name: string;
   location: string;
   specific_position: string | null;

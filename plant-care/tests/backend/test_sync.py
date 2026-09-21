@@ -17,7 +17,7 @@ from sqlalchemy import event, func, select, text
 
 class FakeHomeAssistant:
     def __init__(self) -> None:
-        observed_at = datetime(2026, 8, 15, 8, 30, tzinfo=UTC)
+        observed_at = datetime.now(UTC)
         self.entities = [
             HomeAssistantEntity(
                 entity_id="sensor.fern_moisture",
@@ -236,7 +236,9 @@ def test_mapped_home_assistant_values_are_persisted_and_idempotent(tmp_path: Pat
         assert refreshed["temperature"] == 24
         assert refreshed["battery"] == 91
         assert refreshed["illuminance"] == 850
-        assert refreshed["last_reading_at"] == "2026-08-15T08:30:00Z"
+        assert (
+            datetime.fromisoformat(refreshed["last_reading_at"]) == source.entities[0].last_updated
+        )
 
         history = client.get(
             f"/api/v1/plants/{plant['id']}/readings", params={"metric": "moisture"}
@@ -278,7 +280,10 @@ def test_plant_created_with_mapping_is_hydrated_immediately(tmp_path: Path) -> N
         assert created.json()["temperature"] == 24
         assert created.json()["battery"] == 91
         assert created.json()["illuminance"] == 850
-        assert created.json()["last_reading_at"] == "2026-08-15T08:30:00Z"
+        assert (
+            datetime.fromisoformat(created.json()["last_reading_at"])
+            == source.entities[0].last_updated
+        )
 
 
 def test_invalid_reading_clears_current_value_and_warns(tmp_path: Path) -> None:
@@ -391,6 +396,7 @@ async def test_frequent_readings_preserve_full_wet_duration(tmp_path: Path) -> N
             environment_type="indoor",
         )
         plant.entity_mapping = PlantEntityMapping(moisture_entity_id="sensor.fern_moisture")
+        plant.wet_duration_hours_override = 24
         session.add(plant)
         await session.flush()
         for index in range(313):
@@ -450,14 +456,14 @@ def test_home_assistant_entity_includes_area_and_device_metadata() -> None:
     assert entity.last_changed == datetime(2026, 8, 15, 8, 25, tzinfo=UTC)
 
 
-def test_unchanged_sensor_creates_notification_and_recovers(tmp_path: Path) -> None:
+def test_sensor_without_recent_report_creates_notification_and_recovers(tmp_path: Path) -> None:
     source = FakeHomeAssistant()
     notifier = FakeHomeAssistantNotifier()
     now = datetime.now(UTC)
     source.entities[0] = source.entities[0].model_copy(
         update={
             "last_changed": now - timedelta(hours=73),
-            "last_updated": now,
+            "last_updated": now - timedelta(hours=73),
         }
     )
     source.entities[2] = source.entities[2].model_copy(
@@ -534,6 +540,7 @@ def test_three_low_readings_create_action_notification_and_recover(tmp_path: Pat
             "/api/v1/plants",
             json={
                 "display_name": "Bedroom Snake Plant",
+                "wet_duration_hours_override": 24,
                 "location": "Bedroom",
                 "common_name": "Snake plant",
                 "scientific_name": "Dracaena trifasciata",
@@ -570,7 +577,7 @@ def test_three_low_readings_create_action_notification_and_recover(tmp_path: Pat
         assert len(notifier.created) == 1
         assert f"#plants/{plant['id']}" in notifier.created[0]["message"]
 
-        recovered_at = now + timedelta(minutes=5)
+        recovered_at = datetime.now(UTC)
         source.entities[0] = source.entities[0].model_copy(
             update={
                 "state": "18",
@@ -612,6 +619,13 @@ def test_prolonged_wet_readings_create_drying_action(tmp_path: Path) -> None:
             },
         )
         assert created.status_code == 201
+        assert (
+            client.patch(
+                f"/api/v1/plants/{created.json()['id']}",
+                json={"wet_duration_hours_override": 24},
+            ).status_code
+            == 200
+        )
 
         for hours, value in ((25, "61"), (0, "62")):
             observed_at = now - timedelta(hours=hours)
@@ -629,11 +643,11 @@ def test_prolonged_wet_readings_create_drying_action(tmp_path: Path) -> None:
         assert refreshed["moisture_status"] == "high"
         action = client.get("/api/v1/actions").json()["actions"][0]
         assert action["type"] == "prolonged_wet"
-        assert action["title"] == "Help soil dry safely"
-        assert "at least 26 hours" in action["observation"]
+        assert action["title"] == "Review slow drying"
+        assert "Above your wet threshold" in action["observation"]
         assert len(notifier.created) == 1
 
-        recovered_at = now + timedelta(minutes=5)
+        recovered_at = datetime.now(UTC)
         source.entities[0] = source.entities[0].model_copy(
             update={
                 "state": "35",

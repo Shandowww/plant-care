@@ -322,7 +322,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.10.3",
+            version: "0.10.4",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -469,9 +469,9 @@ describe("portal", () => {
     expect(
       screen.getByText("Watering check at or below 25%"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Prolonged-wet warning at or above 60%/)).toBeInTheDocument();
+    expect(screen.getByText(/Wet tracking at or above 60%/)).toBeInTheDocument();
     expect(
-      screen.getByText(/readings vary by sensor, substrate, and placement/),
+      screen.getByText(/Calibrate thresholds for your sensor, substrate, and placement/),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("dialog", { name: "Golden Pothos" }),
