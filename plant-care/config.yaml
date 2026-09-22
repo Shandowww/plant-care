@@ -1,5 +1,5 @@
 name: Plant Care Dashboard
-version: "0.10.7"
+version: "0.11.0"
 slug: plant_care
 description: Local-first plant sensor guidance and shared care actions
 url: https://github.com/Shandowww/plant-care
@@ -27,12 +27,20 @@ watchdog: http://[HOST]:8099/api/v1/health
 backup: hot
 stage: experimental
 options:
+  doctor_provider: auto
+  gemini_api_key: ""
+  gemini_model: gemini-3.6-flash
+  doctor_cloudflare_fallback: false
   log_level: info
   stale_sensor_hours: 72
   home_assistant_notifications: true
   cloudflare_account_id: ""
   cloudflare_api_token: ""
 schema:
+  doctor_provider: list(auto|gemini|cloudflare)
+  gemini_api_key: password
+  gemini_model: str
+  doctor_cloudflare_fallback: bool
   log_level: list(debug|info|warning|error)
   stale_sensor_hours: "int(24,720)"
   home_assistant_notifications: bool

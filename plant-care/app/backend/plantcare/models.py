@@ -10,6 +10,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -200,6 +201,10 @@ class PlantDoctorVisit(Base):
     possible_issues: Mapped[Any] = mapped_column(JSON)
     next_steps: Mapped[Any] = mapped_column(JSON)
     watering_guidance: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    care_plan: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    symptoms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     sensor_snapshot: Mapped[Any] = mapped_column(JSON)
     confidence: Mapped[str] = mapped_column(String(16))
     provider: Mapped[str] = mapped_column(String(120))

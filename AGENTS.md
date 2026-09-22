@@ -85,6 +85,8 @@ git diff --check
   or universally calibrated botanical targets. Preserve explicit unknown-species fallbacks.
 
 ## Releases and references
+- For the Plant Doctor upgrade, read docs/plant-doctor-todo.md first; update its
+  checklist and resume checkpoint after meaningful progress and before handoff.
 - For authorized releases, synchronize config.yaml, Dockerfile BUILD_VERSION,
   pyproject.toml, backend __init__.py, frontend package.json/package-lock.json,
   version assertions in tests, and CHANGELOG.md.

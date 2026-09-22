@@ -72,7 +72,7 @@ async def test_cloudflare_request_keeps_token_in_header_and_parses_assessment() 
             '{"watering_check_at_or_below":25,"prolonged_wet_at_or_above":60}'
             in body["messages"][1]["content"]
         )
-        assert "after verifying the photo identity" in body["messages"][1]["content"]
+        assert "identity confidence kept separate" in body["messages"][1]["content"]
         assert "response_format" not in body
         return httpx2.Response(
             200,
@@ -311,7 +311,7 @@ async def test_cloudflare_json_mode_object_response_is_supported() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("identity_status", ["mismatch", "uncertain", None, []])
+@pytest.mark.parametrize("identity_status", ["mismatch", None, []])
 async def test_unverified_identity_withholds_care_even_if_provider_supplies_it(
     identity_status: object,
 ) -> None:

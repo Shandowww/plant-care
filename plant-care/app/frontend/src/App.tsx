@@ -1400,10 +1400,11 @@ function SettingsView({
             <div>
               <strong>
                 {health?.plant_doctor_configured
-                  ? "Cloudflare credentials loaded"
-                  : "Cloudflare credentials not configured"}
+                  ? "AI provider configured"
+                  : "AI provider not configured"}
               </strong>
               <small>
+                Choose Gemini or Cloudflare in the Home Assistant add-on configuration.
                 Credentials are read by the app backend only. Diagnostic photos
                 are sent only after consent for each check.
               </small>
@@ -2098,6 +2099,8 @@ function DoctorDialog({
   ) => Promise<void>;
 }) {
   const [consent, setConsent] = useState(false);
+  const [symptoms, setSymptoms] = useState("");
+  const [fallbackConsent, setFallbackConsent] = useState(false);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<PlantDoctorResponse | null>(null);
   const [usage, setUsage] = useState<PlantDoctorUsageResponse | null>(null);
@@ -2109,13 +2112,21 @@ function DoctorDialog({
   const [message, setMessage] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const diagnosticPhotoInputRef = useRef<HTMLInputElement>(null);
+  const doctorDialogRef = useRef<HTMLElement>(null);
   const photoPreview = usePhotoPreview(photoFile);
+
+  useEffect(() => {
+    if (doctorDialogRef.current) doctorDialogRef.current.scrollTop = 0;
+  }, [result]);
 
   useEffect(() => {
     const controller = new AbortController();
     void getPlantDoctorUsage(controller.signal)
       .then(setUsage)
-      .catch(() => undefined);
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setMessage("Could not load the AI provider details. Close and reopen Plant Doctor to retry; no photo has been sent.");
+      });
     void getPlantDoctorHistory(plant.id, controller.signal)
       .then((response) => setHistory(response.visits))
       .catch(() => undefined);
@@ -2132,11 +2143,11 @@ function DoctorDialog({
   }
 
   async function check() {
-    if (!consent || !photoFile) return;
+    if (!consent || !photoFile || !usage || usage.configured === false) return;
     setChecking(true);
     setMessage(null);
     try {
-      setResult(await diagnosePlant(plant.id, photoFile));
+      setResult(await diagnosePlant(plant.id, photoFile, symptoms, fallbackConsent));
       setActionAdded(false);
       setActionDeclined(false);
       await refreshDoctorData();
@@ -2232,6 +2243,7 @@ function DoctorDialog({
     >
       <section
         className="dialog doctor-dialog"
+        ref={doctorDialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="doctor-dialog-title"
@@ -2244,7 +2256,7 @@ function DoctorDialog({
         >
           <X />
         </button>
-        <p className="eyebrow">PLANT DOCTOR · CLOUDFLARE AI</p>
+        <p className="eyebrow">PLANT DOCTOR · {usage?.provider ?? "AI assessment"}</p>
         <h2 id="doctor-dialog-title">Check {plant.display_name}</h2>
         {result ? (
           <DoctorResult result={result} photo={photoPreview} plant={plant} />
@@ -2254,7 +2266,7 @@ function DoctorDialog({
               Choose or take a current diagnostic photo. Your cover photo stays
               unchanged. The selected photo, latest sensor values, a compact
               seven-day soil-moisture summary, and up to five recent Doctor
-              summaries, decisions, and outcomes will be sent to Cloudflare for
+              summaries, decisions, outcomes, and your notes will be sent to {usage?.provider ?? "your configured provider"} for
               this check.
             </p>
             {photoPreview ? (
@@ -2307,15 +2319,34 @@ function DoctorDialog({
                 </label>
               </div>
             )}
+            <label className="doctor-symptoms">
+              <strong>What changed? <small>Optional</small></strong>
+              <textarea
+                value={symptoms}
+                onChange={(event) => setSymptoms(event.target.value)}
+                maxLength={2000}
+                rows={3}
+                placeholder="For example: wilted in the last 24 hours; watered yesterday; recently moved into sun."
+              />
+            </label>
             <DoctorUsage usage={usage} />
+            {usage?.provider === "Google Gemini" && (
+              <p className="doctor-note">Google's free API tier may use submitted content to improve its products. Review your Google AI Studio data settings before sending.</p>
+            )}
+            {usage?.fallback_available && (
+              <label className="consent-row">
+                <input type="checkbox" checked={fallbackConsent}
+                  onChange={(event) => setFallbackConsent(event.target.checked)} />
+                Also allow Cloudflare to receive this photo and context if Gemini cannot complete the check.
+              </label>
+            )}
             <label className="consent-row">
               <input
                 type="checkbox"
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              I agree to send this photo and limited plant context to Cloudflare
-              Workers AI for one assessment.
+              I agree to send this photo, my notes, and limited plant context to {usage?.provider ?? "the configured AI provider"} for one assessment.
             </label>
             <p className="doctor-note">
               PlantCare does not store this diagnostic photo or replace the
@@ -2345,7 +2376,7 @@ function DoctorDialog({
             <button
               className="primary-button"
               type="button"
-              disabled={!photoFile || !consent || checking}
+              disabled={!photoFile || !consent || checking || !usage || usage.configured === false}
               onClick={check}
             >
               {checking ? "Checking…" : "Send for diagnosis"}
@@ -2360,6 +2391,7 @@ function DoctorDialog({
                   setResult(null);
                   setPhotoFile(null);
                   setConsent(false);
+                  setFallbackConsent(false);
                   setActionAdded(false);
                   setActionDeclined(false);
                 }}
@@ -2382,7 +2414,7 @@ function DoctorDialog({
               <button
                 className="primary-button"
                 type="button"
-                disabled={addingAction || actionAdded || actionDeclined || result.identity_status !== "match"}
+                disabled={addingAction || actionAdded || actionDeclined || result.identity_status === "mismatch" || result.next_steps.length === 0}
                 onClick={addAction}
               >
                 {actionAdded
@@ -2447,6 +2479,9 @@ function DoctorHistory({
               </span>
             </div>
             <strong>{visit.summary}</strong>
+            {visit.symptoms && <p><strong>Your notes:</strong> {visit.symptoms}</p>}
+            {visit.care_plan?.reassess && <p><strong>Follow-up:</strong> {visit.care_plan.reassess}</p>}
+            <small>{visit.provider}{visit.fallback_used ? " · fallback used" : ""}</small>
             {visit.next_steps.length > 0 && (
               <p>{visit.next_steps.join(" · ")}</p>
             )}
@@ -2485,18 +2520,21 @@ function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
       </div>
     );
   return (
-    <aside className="doctor-usage" aria-label="Cloudflare AI usage reminder">
+    <aside className="doctor-usage" aria-label="AI usage reminder">
       <strong>
         {usage.checks_today} completed{" "}
         {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC
       </strong>
-      <span>
+      {usage.provider === "Google Gemini" ? <span>
+        Gemini limits depend on your model and account. Check Google AI Studio for remaining quota and reset times.
+      </span> : <span>
         Estimated {usage.estimated_neurons_per_check} neurons per check ·{" "}
         {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day
-      </span>
+      </span>}
       <small>
-        Free-plan requests stop at the limit; Workers Paid may bill for overage.
-        This local count includes successful PlantCare checks only.
+        This local count includes completed PlantCare checks across providers, not remaining credits.
+        Failed attempts and fallback processing may also consume provider quota.
+        Paid accounts may incur charges.
       </small>
     </aside>
   );
@@ -2517,14 +2555,14 @@ function DoctorResult({
         <img src={gardenerUrl} alt="" width="72" height="72" />
         <div>
           <span>YOUR AI GARDENER</span>
-          <h3>{result.identity_status === "match" ? "A care plan" : "Photo review"} for {plant.display_name}</h3>
+          <h3>{result.identity_status === "mismatch" ? "Photo review" : "A care plan"} for {plant.display_name}</h3>
           <p>Plant-specific guidance, one step at a time.</p>
         </div>
       </header>
       {result.identity_status !== "match" && (
         <aside className="doctor-disclaimer" role="status">
           <strong>{result.identity_status === "mismatch" ? "This may be a different plant." : "Plant identity is not confirmed."}</strong>
-          <p>{result.identity_explanation || "Upload a clear photo of the selected plant before adding care recommendations."}</p>
+          <p>{result.identity_explanation || "Species is uncertain; guidance is based on visible symptoms."}</p>
         </aside>
       )}
       {photo && (
@@ -2545,18 +2583,27 @@ function DoctorResult({
       </p>
       <div className="doctor-result__summary">
         <span className={`confidence confidence--${result.confidence}`}>
-          {result.confidence} confidence
+          {result.confidence} care confidence
         </span>
+        {result.care_plan && result.care_plan.urgency !== "unknown" && (
+          <span className={`confidence confidence--${result.care_plan.urgency === "urgent" ? "low" : "medium"}`}>
+            {({routine: "Routine care", soon: "Attention soon", urgent: "Act today", unknown: ""})[result.care_plan.urgency]}
+          </span>
+        )}
         <blockquote className="doctor-quote">{result.summary}</blockquote>
       </div>
+      {result.next_steps.length > 0 && (
+        <DoctorList title="What to do now" items={result.next_steps} recommendation />
+      )}
+      {!!result.care_plan?.evidence.length && <DoctorList title="Why this may be happening" items={result.care_plan.evidence} />}
+      {!!result.care_plan?.avoid.length && <DoctorList title="What to avoid" items={result.care_plan.avoid} />}
+      {result.care_plan?.expected_improvement && <section><h4>Expected improvement</h4><p>{result.care_plan.expected_improvement}</p></section>}
+      {result.care_plan?.reassess && <section><h4>When to reassess</h4><p>{result.care_plan.reassess}</p></section>}
       {result.observations.length > 0 && (
         <DoctorList title="Visible observations" items={result.observations} />
       )}
       {result.possible_issues.length > 0 && (
         <DoctorList title="Possible issues" items={result.possible_issues} />
-      )}
-      {result.next_steps.length > 0 && (
-        <DoctorList title="Recommended next steps" items={result.next_steps} recommendation />
       )}
       <section
         className="doctor-watering-plan"
@@ -2593,9 +2640,10 @@ function DoctorResult({
       <p className="doctor-disclaimer">{result.disclaimer}</p>
       <small>
         {result.provider} ·{" "}
-        {result.neurons === null
+        {result.total_tokens != null ? `${result.total_tokens.toLocaleString()} tokens` : result.neurons === null
           ? "Usage unavailable"
           : `${result.neurons.toFixed(2)} neurons`}
+        {result.fallback_used && " · Cloudflare fallback used; usage shown covers that provider only."}
       </small>
     </div>
   );

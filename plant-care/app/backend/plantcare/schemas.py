@@ -130,7 +130,18 @@ class PlantDoctorWateringGuidance(BaseModel):
     drying_steps: list[str]
 
 
+class DoctorCarePlan(BaseModel):
+    urgency: Literal["routine", "soon", "urgent", "unknown"] = "unknown"
+    evidence: list[str] = Field(default_factory=list)
+    avoid: list[str] = Field(default_factory=list)
+    expected_improvement: str = ""
+    reassess: str = ""
+
+
 class PlantDoctorResponse(BaseModel):
+    care_plan: DoctorCarePlan = Field(default_factory=DoctorCarePlan)
+    total_tokens: int | None = None
+    fallback_used: bool = False
     identity_status: Literal["match", "mismatch", "uncertain"] = "uncertain"
     identity_explanation: str = "Photo identity has not been verified."
     visit_id: str | None = None
@@ -147,6 +158,9 @@ class PlantDoctorResponse(BaseModel):
 
 
 class PlantDoctorUsageResponse(BaseModel):
+    provider: str = "Cloudflare Workers AI"
+    fallback_available: bool = False
+    configured: bool = True
     checks_today: int
     period_started_at: datetime
     resets_at: datetime
@@ -161,6 +175,10 @@ class PlantDoctorActionRequest(BaseModel):
 
 class PlantDoctorVisitSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    care_plan: DoctorCarePlan | None = None
+    symptoms: str | None = None
+    total_tokens: int | None = None
+    fallback_used: bool = False
 
     id: str
     action_id: str | None

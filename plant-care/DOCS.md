@@ -19,7 +19,7 @@ its own local database.
    this stays separate from the Home Assistant area and remains editable.
 5. Optionally choose a private cover photo while adding the plant. It can be
    added, replaced, or removed later from **Details → Edit plant**.
-6. Optional: configure Plant Doctor with your own Cloudflare account credentials
+6. Optional: configure Plant Doctor with your own Gemini or Cloudflare credentials
    as described below.
 7. If the standalone LAN view is needed, create its password from the ingress
    session first.
@@ -82,25 +82,33 @@ library, camera, and files rather than opening the camera automatically.
 
 ## Optional Plant Doctor
 
-Plant Doctor uses Cloudflare Workers AI only when an installation owner provides
-their own credentials. In Home Assistant, open **Settings → Apps → Plant Care
-Dashboard → Configuration**, enter `cloudflare_account_id` and
-`cloudflare_api_token`, save, and restart the app. Accept the terms for
+In Home Assistant, open **Settings → Apps → Plant Care Dashboard → Configuration**.
+For Gemini, enter your own `gemini_api_key`, leave `doctor_provider: auto`, save,
+and restart. Auto prefers Gemini when its key is configured; otherwise it keeps
+using Cloudflare. `gemini_model` defaults to `gemini-3.6-flash` and can be changed
+to another compatible image/structured-output Gemini model available to your account.
+Explicit `doctor_provider: gemini` or `cloudflare` pins the provider; a missing
+key does not silently switch providers.
+
+For Cloudflare, enter `cloudflare_account_id` and `cloudflare_api_token`.
+Accept the terms for
 `@cf/meta/llama-3.2-11b-vision-instruct` in the Cloudflare dashboard before the
 first check.
 
-The token is a protected app option. It is read by the backend, is not sent to
+Both API credentials are protected app options. They are read by the backend, not sent to
 the browser, is not written to logs or audit records, and must never be committed
-to Git. Every PlantCare installation uses its owner's Cloudflare credentials;
+to Git. Every PlantCare installation uses its owner's credentials;
 there is no shared PlantCare AI account.
 
 For each check, PlantCare asks the user to take or choose a separate current
 diagnostic photo and provide fresh consent. It does not use, replace, or store
-the plant's cover photo for this purpose. It sends Cloudflare a temporary
+the plant's cover photo for this purpose. It sends the selected provider a temporary
 metadata-free copy resized to at most 1280 pixels, the plant identity,
 area/precise position/exposure, the latest moisture, temperature, and
 illuminance values, and a compact summary of up to seven days of local
-soil-moisture readings. Raw Home Assistant entity history is not sent.
+soil-moisture readings, per-metric freshness and available drying context. Optional
+“What changed?” notes can explain symptom onset, watering, movement or treatment.
+Raw Home Assistant entity history is not sent.
 On later checks it also sends at most five recent text-only assessment summaries,
 recommendations, queue decisions, and outcomes. Previous diagnostic photos,
 Home Assistant credentials, and entity IDs are not sent.
@@ -113,18 +121,37 @@ recommendation can be marked **Helped**, **Didn't help**, or **Not sure**. That
 feedback helps the next assessment avoid repeating unsuccessful advice without
 new evidence. AI output never changes care or controls devices by itself.
 
-Each result includes a watering plan: a provisional sensor notification point,
-instructions for checking several root-zone spots before watering, a suitable
-watering and drainage method, and drying advice only when the recent evidence
-supports excess moisture. The notification percentage is intentionally a
+Each result separates identity confidence from care confidence, and includes
+urgency, supporting evidence, immediate steps, things to avoid, expected improvement,
+and when to reassess. Uncertain species identification still permits conditional
+symptom guidance. A clear photo mismatch blocks adding its advice to the saved
+plant's queue. Wilting alone is not treated as proof that more water is needed.
+Watering instructions are provided only when supported; an empty watering plan
+does not get replaced by generic watering advice. A suggested notification percentage is a
 starting point to calibrate against that sensor, substrate, probe placement, and
 pot; it is not treated as a universal watering threshold.
 
 The consent screen also shows how many successful Plant Doctor checks this
-PlantCare installation has completed since 00:00 UTC. It includes a reminder of
+PlantCare installation has completed since 00:00 UTC across providers. For Cloudflare it includes a reminder of
 the 10,000-neuron daily free allocation and an approximate 10–50 neurons per
 check. This is a local check count, not Cloudflare account-wide usage; activity
-from other applications is visible only in the Cloudflare dashboard.
+from other applications is visible only in the provider dashboard. Gemini results
+show tokens, not neurons; account/model limits and billing must be checked in
+Google AI Studio. Failed attempts can consume quota even when nothing is saved.
+
+Optional `doctor_cloudflare_fallback: true` offers a separate, unchecked consent
+box when both providers are configured. Only with that per-check permission can
+a Gemini service/quota/format failure send the same photo/context to Cloudflare.
+Uncertainty is not a failure and does not trigger fallback. Authentication/configuration
+errors do not trigger it either. Results identify the actual provider and fallback use.
+Shown usage covers the successful provider, not the failed primary attempt.
+
+Google's unpaid API service may use submitted content to improve its products;
+review [Google's terms](https://ai.google.dev/gemini-api/terms) before sharing photos.
+Model support: [Gemini 3.6 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash),
+[structured output](https://ai.google.dev/gemini-api/docs/structured-output),
+and [pricing/data use](https://ai.google.dev/gemini-api/docs/pricing).
+Automated tests use mock providers; they do not establish live diagnostic accuracy.
 
 On Cloudflare's Workers Free plan, requests stop with an error after the daily
 allocation is exhausted and resume after the 00:00 UTC reset; they are not

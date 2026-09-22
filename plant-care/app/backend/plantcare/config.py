@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     )
     cloudflare_account_id: str | None = None
     cloudflare_api_token: SecretStr | None = None
+    doctor_provider: Literal["auto", "gemini", "cloudflare"] = "auto"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = Field(default="gemini-3.6-flash", pattern=r"^gemini-[a-z0-9.-]+$")
+    doctor_cloudflare_fallback: bool = False
 
     @property
     def resolved_database_url(self) -> str:

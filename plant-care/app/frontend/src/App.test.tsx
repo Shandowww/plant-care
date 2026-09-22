@@ -59,6 +59,8 @@ function mockApi(
   plantFixture = plant,
   simulator = true,
   doctorIdentity = "match",
+  doctorProvider = "Cloudflare Workers AI",
+  fallbackAvailable = false,
 ) {
   let currentPlant = { ...plantFixture };
   let doctorChecks = 0;
@@ -71,6 +73,9 @@ function mockApi(
         return new Response(
           JSON.stringify({
             checks_today: doctorChecks,
+            provider: doctorProvider,
+            configured: true,
+            fallback_available: fallbackAvailable,
             period_started_at: "2026-09-10T00:00:00Z",
             resets_at: "2026-09-11T00:00:00Z",
             daily_free_neuron_limit: 10000,
@@ -229,7 +234,13 @@ function mockApi(
             illuminance: null,
           },
           confidence: "medium",
-          provider: "Cloudflare Workers AI",
+          provider: doctorProvider,
+          total_tokens: doctorProvider === "Google Gemini" ? 732 : null,
+          care_plan: {
+            urgency: "soon", evidence: ["Recent wilting needs context."],
+            avoid: ["Avoid harsh sun."], expected_improvement: "Depends on the cause.",
+            reassess: "Reassess tomorrow.",
+          },
           model: "@cf/meta/llama-3.2-11b-vision-instruct",
           neurons: 11.25,
           decision: "pending",
@@ -251,6 +262,8 @@ function mockApi(
             provider: visit.provider,
             model: visit.model,
             neurons: visit.neurons,
+            total_tokens: visit.total_tokens,
+            care_plan: visit.care_plan,
             disclaimer: "Confirm suggestions before changing care.",
           }),
           { status: 200 },
@@ -322,7 +335,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.10.7",
+            version: "0.11.0",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -563,6 +576,7 @@ describe("portal", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
     fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    await screen.findByText("0 completed checks since 00:00 UTC");
     chooseDiagnosticPhoto();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Send for diagnosis" }));
@@ -589,7 +603,7 @@ describe("portal", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Free-plan requests stop at the limit/),
+      screen.getByText(/Failed attempts and fallback processing/),
     ).toBeInTheDocument();
     const send = screen.getByRole("button", { name: "Send for diagnosis" });
     expect(send).toBeDisabled();
@@ -605,7 +619,7 @@ describe("portal", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Watering plan")).toBeInTheDocument();
     expect(screen.getByText("YOUR AI GARDENER")).toBeInTheDocument();
-    expect(screen.getByText("Recommended next steps")).toBeInTheDocument();
+    expect(screen.getByText("What to do now")).toBeInTheDocument();
     expect(screen.getByText("Suggested notification point")).toBeInTheDocument();
     expect(screen.getByText("Check two root-zone spots.")).toBeInTheDocument();
     expect(screen.getByText("Check two root-zone spots.").tagName).toBe("Q");
@@ -662,6 +676,36 @@ describe("portal", () => {
     expect(await screen.findByText("AI recommendation")).toBeInTheDocument();
   });
 
+  it("sends symptoms with Gemini consent and leaves fallback optional", async () => {
+    const fetchMock = mockApi(action, plant, true, "uncertain", "Google Gemini", true);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    await screen.findByText("0 completed checks since 00:00 UTC");
+    expect(screen.queryByText(/10,000 free neurons/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Google AI Studio for remaining quota/)).toBeInTheDocument();
+    chooseDiagnosticPhoto();
+    fireEvent.change(screen.getByRole("textbox"), {target: {value: "Wilted since yesterday"}});
+    const fallback = screen.getByRole("checkbox", {name: /Also allow Cloudflare/});
+    expect(fallback).not.toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", {name: /I agree to send/}));
+    const doctorDialog = screen.getByRole("dialog", {name: "Check Golden Pothos"});
+    doctorDialog.scrollTop = 500;
+    fireEvent.click(screen.getByRole("button", {name: "Send for diagnosis"}));
+    await screen.findByText("The leaves look generally healthy.");
+    expect(doctorDialog.scrollTop).toBe(0);
+    expect(screen.getByText("Plant identity is not confirmed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Add AI recommendation"})).toBeEnabled();
+    expect(screen.getByText("Attention soon")).toBeInTheDocument();
+    expect(screen.getByText("Reassess tomorrow.")).toBeInTheDocument();
+    expect(screen.getByText(/732 tokens/)).toBeInTheDocument();
+    const request = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).endsWith("/doctor") && init?.method === "POST");
+    const body = request?.[1]?.body as FormData;
+    expect(body.get("symptoms")).toBe("Wilted since yesterday");
+    expect(body.get("fallback_consent")).toBe("false");
+  });
+
   it("records when a Doctor recommendation is declined", async () => {
     const fetchMock = mockApi(action, {
       ...plant,
@@ -672,6 +716,7 @@ describe("portal", () => {
       await screen.findByRole("button", { name: "Open Golden Pothos details" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Plant doctor" }));
+    await screen.findByText("0 completed checks since 00:00 UTC");
     chooseDiagnosticPhoto();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Send for diagnosis" }));

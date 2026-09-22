@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from plantcare.config import Settings
+from plantcare.doctor_providers import FallbackPlantDoctor
 from plantcare.main import AUTO_MANAGED_ACTION_TYPES, create_app
 from plantcare.plant_doctor import PlantDoctorContext, PlantDoctorProviderError
 from plantcare.schemas import PlantDoctorResponse
@@ -59,10 +60,16 @@ def request_diagnosis(
     photo: bytes,
     *,
     consent: bool = True,
+    symptoms: str = "",
+    fallback_consent: bool = False,
 ):
     return client.post(
         f"/api/v1/plants/{plant_id}/doctor",
-        data={"consent": str(consent).lower()},
+        data={
+            "consent": str(consent).lower(),
+            "symptoms": symptoms,
+            "fallback_consent": str(fallback_consent).lower(),
+        },
         files={"photo": ("diagnostic.jpg", photo, "image/jpeg")},
     )
 
@@ -85,13 +92,63 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.10.7",
+        "version": "0.11.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
         "home_assistant_notifications_enabled": False,
         "stale_sensor_hours": 72,
     }
+
+
+@pytest.mark.parametrize("fallback_consent", [False, True])
+def test_doctor_fallback_needs_request_consent(tmp_path, monkeypatch, fallback_consent):
+    fallback = StubPlantDoctor()
+    primary = FailingPlantDoctor("unavailable")
+    monkeypatch.setattr(
+        "plantcare.main.configured_doctor",
+        lambda _: (FallbackPlantDoctor(primary, fallback), "Google Gemini", True),
+    )
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'consent.db'}",
+    )
+    with TestClient(create_app(settings)) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        result = request_diagnosis(
+            client, plant["id"], diagnostic_photo(), fallback_consent=fallback_consent
+        )
+        assert result.status_code == (200 if fallback_consent else 503)
+        assert len(fallback.calls) == int(fallback_consent)
+        if fallback_consent:
+            assert result.json()["fallback_used"] is True
+            history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history").json()
+            assert history["visits"][0]["fallback_used"] is True
+
+
+@pytest.mark.parametrize("identity", ["uncertain", "mismatch"])
+def test_doctor_acceptance_respects_identity(tmp_path, identity):
+    class IdentityDoctor(StubPlantDoctor):
+        async def analyze(self, photo, context):
+            result = await super().analyze(photo, context)
+            return result.model_copy(update={"identity_status": identity})
+
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'identity.db'}",
+    )
+    with TestClient(create_app(settings, plant_doctor_client=IdentityDoctor())) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        result = request_diagnosis(client, plant["id"], diagnostic_photo()).json()
+        response = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor/recommendation",
+            json={"visit_id": result["visit_id"], "recommendation": "Empty standing water."},
+        )
+        assert response.status_code == (200 if identity == "uncertain" else 422)
 
 
 def test_spa_entry_point_is_not_cached(tmp_path: Path) -> None:
@@ -389,7 +446,9 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
         initial_history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history")
         current_photo = diagnostic_photo(size=(2400, 1600))
 
-        response = request_diagnosis(client, plant["id"], current_photo)
+        response = request_diagnosis(
+            client, plant["id"], current_photo, symptoms="Drooped after watering yesterday."
+        )
         cover_after_diagnosis = next(
             item
             for item in client.get("/api/v1/plants").json()["plants"]
@@ -421,6 +480,9 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
 
     assert response.status_code == 200
     assert response.json()["neurons"] == 12.5
+    assert saved_history.json()["visits"][0]["symptoms"] == "Drooped after watering yesterday."
+    assert doctor.calls[1][1].history[0].symptoms == "Drooped after watering yesterday."
+    assert "latest per metric" in doctor.calls[0][1].reading_freshness
     assert response.json()["confidence"] == "medium"
     assert response.json()["visit_id"] is not None
     assert cover_after_diagnosis["photo_updated_at"] is None
@@ -462,11 +524,11 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
 @pytest.mark.parametrize(
     ("kind", "expected_status", "message"),
     [
-        ("quota", 429, "daily AI allowance"),
+        ("quota", 429, "allowance has been reached"),
         ("credentials", 401, "expired, revoked"),
         ("configuration", 403, "model agreement"),
         ("capacity", 503, "out of capacity"),
-        ("rate_limit", 429, "too many requests"),
+        ("rate_limit", 429, "rate or quota limit"),
         ("invalid_response", 502, "did not return the structured"),
         ("unavailable", 503, "could not be reached"),
     ],

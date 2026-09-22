@@ -109,10 +109,14 @@ export async function deletePlantPhoto(plantId: string): Promise<void> {
   if (!response.ok) throw new ApiError(response.status, "The photo could not be deleted.");
 }
 
-export async function diagnosePlant(plantId: string, photo: File): Promise<PlantDoctorResponse> {
+export async function diagnosePlant(
+  plantId: string, photo: File, symptoms = "", fallbackConsent = false,
+): Promise<PlantDoctorResponse> {
   const body = new FormData();
   body.append("consent", "true");
   body.append("photo", photo);
+  body.append("symptoms", symptoms);
+  body.append("fallback_consent", String(fallbackConsent));
   const csrf = csrfToken();
   const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/doctor`), {
     method: "POST",

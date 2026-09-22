@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0
+
+- Add configurable Gemini image assessments, retaining Cloudflare for existing
+  installations and as an optional per-check, explicitly consented fallback.
+- Collect optional symptom/onset notes and include sensor freshness, drying
+  context, and prior consultation notes in the assessment.
+- Separate identity uncertainty from care confidence; preserve useful conditional
+  guidance while preventing wrong-plant recommendations from entering the queue.
+- Show urgency, immediate steps, evidence, avoidance and follow-up guidance.
+  Return the dialog to the top when a diagnosis finishes so the result is visible.
+  Empty watering recommendations no longer insert generic watering instructions.
+- Persist care plans and notes while preserving older patient history. Show
+  provider-specific usage and actionable provider errors without exposing keys.
+- Live diagnostic quality still requires evaluation with the installation's own
+  credentials and consented diagnostic photo; mock tests are not a quality benchmark.
+
 ## 0.10.7
 
 - Recover malformed Vision-model replies through a structured-output text

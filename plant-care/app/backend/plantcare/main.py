@@ -31,6 +31,7 @@ from .auth import AuthService, Identity, ensure_ingress
 from .care_profiles import care_profile
 from .config import Settings, get_settings
 from .database import Database
+from .doctor_providers import FallbackPlantDoctor, bounded_assessment, configured_doctor
 from .home_assistant import (
     HomeAssistantClient,
     HomeAssistantNotificationSink,
@@ -55,7 +56,6 @@ from .photos import (
     store_photo,
 )
 from .plant_doctor import (
-    CloudflarePlantDoctor,
     MoistureHistoryPoint,
     PlantDoctorContext,
     PlantDoctorHistoryContext,
@@ -129,17 +129,9 @@ def create_app(
         and not app_settings.simulator_enabled
         and notification_sink is not None
     )
-    cloudflare_token = (
-        app_settings.cloudflare_api_token.get_secret_value().strip()
-        if app_settings.cloudflare_api_token
-        else ""
-    )
-    plant_doctor = plant_doctor_client
-    if plant_doctor is None and app_settings.cloudflare_account_id and cloudflare_token:
-        plant_doctor = CloudflarePlantDoctor(
-            account_id=app_settings.cloudflare_account_id,
-            api_token=cloudflare_token,
-        )
+    plant_doctor, doctor_provider_name, doctor_fallback = configured_doctor(app_settings)
+    if plant_doctor_client is not None:
+        plant_doctor = plant_doctor_client
     sync_lock = asyncio.Lock()
     delivery_lock = asyncio.Lock()
 
@@ -756,6 +748,8 @@ def create_app(
         consent: Annotated[bool, Form()],
         identity: CurrentIdentity,
         session: Session,
+        symptoms: Annotated[str, Form(max_length=2000)] = "",
+        fallback_consent: Annotated[bool, Form()] = False,
     ) -> PlantDoctorResponse:
         if not consent:
             raise HTTPException(
@@ -769,8 +763,8 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=(
-                    "Plant Doctor is not configured. Add your Cloudflare Account ID and API "
-                    "token in the add-on configuration."
+                    "Plant Doctor is not configured. Set a Gemini API key or Cloudflare Account ID "
+                    "and API token for your selected provider in the add-on configuration."
                 ),
             )
         try:
@@ -809,7 +803,24 @@ def create_app(
                 plant.common_name,
                 plant.environment_type,
             )
-            assessment = await plant_doctor.analyze(
+            # Older clients consented to a single provider only.
+            doctor_for_request = plant_doctor
+            if doctor_fallback and not fallback_consent:
+                if isinstance(doctor_for_request, FallbackPlantDoctor):
+                    doctor_for_request = doctor_for_request.primary
+            latest_metrics = {}
+            for metric in ("moisture", "temperature", "illuminance"):
+                observed_at = await session.scalar(
+                    select(func.max(Reading.observed_at)).where(
+                        Reading.plant_id == plant.id,
+                        Reading.metric == metric,
+                    )
+                )
+                latest_metrics[metric] = (
+                    observed_at.replace(tzinfo=UTC).isoformat() if observed_at else None
+                )
+            assessment = await bounded_assessment(
+                doctor_for_request,
                 analysis_photo,
                 PlantDoctorContext(
                     display_name=plant.display_name,
@@ -818,6 +829,11 @@ def create_app(
                     location=plant.location,
                     specific_position=plant.specific_position,
                     environment_type=plant.environment_type,
+                    symptoms=symptoms.strip(),
+                    reading_freshness=(
+                        f"Now {datetime.now(UTC).isoformat()}; latest per metric {latest_metrics}"
+                    ),
+                    drying_context=f"{plant.drying_status or 'unknown'}: {plant.drying_note or ''}",
                     moisture=plant.moisture,
                     temperature=plant.temperature,
                     illuminance=plant.illuminance,
@@ -849,6 +865,8 @@ def create_app(
                             recommendation=" · ".join(visit.next_steps),
                             decision=visit.decision,
                             outcome=visit.outcome,
+                            symptoms=visit.symptoms,
+                            reassess=(visit.care_plan or {}).get("reassess"),
                             watering_summary=(
                                 visit.watering_guidance.get("assessment")
                                 if isinstance(visit.watering_guidance, dict)
@@ -858,6 +876,7 @@ def create_app(
                         for visit in previous_visits
                     ),
                 ),
+                doctor_provider_name,
             )
         except InvalidPhotoError as exc:
             raise HTTPException(
@@ -865,12 +884,14 @@ def create_app(
                 detail=str(exc),
             ) from exc
         except PlantDoctorProviderError as exc:
-            logger.warning("plant_doctor_request_failed", provider="cloudflare", reason=exc.kind)
+            logger.warning("plant_doctor_request_failed", provider=exc.provider, reason=exc.kind)
+            provider_name = exc.provider
             if exc.kind == "invalid_response":
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=(
-                        "Cloudflare responded, but the AI did not return the structured plant "
+                        f"{provider_name} responded, but the AI did not return the "
+                        "structured plant "
                         "assessment PlantCare requires. No care advice was saved or added. Try "
                         "again; if it repeats, check the add-on log for "
                         "plant_doctor_request_failed with reason=invalid_response."
@@ -880,30 +901,33 @@ def create_app(
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=(
-                        "The Cloudflare daily AI allowance has been reached. Try again tomorrow."
+                        f"The {provider_name} allowance has been reached. "
+                        "Check your provider quota."
                     ),
                 ) from exc
             if exc.kind == "credentials":
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=(
-                        "Cloudflare rejected the Plant Doctor token. It may be expired, revoked, "
-                        "or missing Workers AI permissions; replace it in the app configuration."
+                        f"{provider_name} rejected the Plant Doctor credentials. "
+                        "They may be expired, "
+                        "revoked, or missing permissions; check them in the add-on configuration."
                     ),
                 ) from exc
             if exc.kind == "configuration":
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
-                        "Cloudflare has not enabled this AI model for the account. Check the model "
-                        "agreement, account access, and Workers plan in Cloudflare."
+                        f"{provider_name} could not use the configured AI model. "
+                        "Check the API key, model name, account access, and any model "
+                        "agreement in your provider account."
                     ),
                 ) from exc
             if exc.kind == "capacity":
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=(
-                        "Cloudflare Workers AI is temporarily out of capacity. Your daily "
+                        f"{provider_name} is temporarily out of capacity. Your daily "
                         "allowance was not identified as the cause; try again shortly."
                     ),
                 ) from exc
@@ -911,13 +935,14 @@ def create_app(
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=(
-                        "Cloudflare is receiving too many requests. Wait a minute and try again."
+                        f"{provider_name} reported a rate or quota limit. Check your provider's "
+                        "usage page for the limit and reset time before retrying."
                     ),
                 ) from exc
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=(
-                    "Cloudflare Workers AI could not be reached or did not return a valid "
+                    f"{provider_name} could not be reached or did not return a valid "
                     "assessment. The service may be unavailable; try again shortly."
                 ),
             ) from exc
@@ -928,6 +953,10 @@ def create_app(
             possible_issues=assessment.possible_issues,
             next_steps=assessment.next_steps,
             watering_guidance=assessment.watering_guidance.model_dump(),
+            care_plan=assessment.care_plan.model_dump(),
+            symptoms=symptoms.strip() or None,
+            total_tokens=assessment.total_tokens,
+            fallback_used=assessment.fallback_used,
             sensor_snapshot={
                 "identity_status": assessment.identity_status,
                 "moisture": plant.moisture,
@@ -1060,6 +1089,9 @@ def create_app(
             )
         )
         return PlantDoctorUsageResponse(
+            provider=doctor_provider_name,
+            configured=plant_doctor is not None,
+            fallback_available=doctor_fallback,
             checks_today=int(checks_today or 0),
             period_started_at=period_started_at,
             resets_at=period_started_at + timedelta(days=1),
@@ -1097,7 +1129,10 @@ def create_app(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="The Plant Doctor history entry was not found.",
                 )
-            if doctor_visit.sensor_snapshot.get("identity_status") in {"mismatch", "uncertain"}:
+            if (
+                doctor_visit.sensor_snapshot.get("identity_status") == "mismatch"
+                or not doctor_visit.next_steps
+            ):
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="Confirm the photo matches this plant with a new Doctor check first.",

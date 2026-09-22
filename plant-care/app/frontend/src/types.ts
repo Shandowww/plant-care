@@ -144,6 +144,9 @@ export interface HealthResponse {
 }
 
 export interface PlantDoctorResponse {
+  care_plan?: DoctorCarePlan;
+  total_tokens?: number | null;
+  fallback_used?: boolean;
   identity_status: "match" | "mismatch" | "uncertain";
   identity_explanation: string;
   visit_id: string | null;
@@ -168,6 +171,9 @@ export interface PlantDoctorWateringGuidance {
 }
 
 export interface PlantDoctorUsageResponse {
+  provider?: string;
+  fallback_available?: boolean;
+  configured?: boolean;
   checks_today: number;
   period_started_at: string;
   resets_at: string;
@@ -183,6 +189,10 @@ export type PlantDoctorOutcome =
   | "not_sure";
 
 export interface PlantDoctorVisit {
+  care_plan?: DoctorCarePlan | null;
+  symptoms?: string | null;
+  total_tokens?: number | null;
+  fallback_used?: boolean;
   id: string;
   action_id: string | null;
   summary: string;
@@ -202,4 +212,12 @@ export interface PlantDoctorVisit {
 
 export interface PlantDoctorHistoryResponse {
   visits: PlantDoctorVisit[];
+}
+
+export interface DoctorCarePlan {
+  urgency: "routine" | "soon" | "urgent" | "unknown";
+  evidence: string[];
+  avoid: string[];
+  expected_improvement: string;
+  reassess: string;
 }

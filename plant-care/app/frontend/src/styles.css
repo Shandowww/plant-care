@@ -2076,6 +2076,22 @@ button {
 .doctor-photo-selection {
   position: relative;
 }
+.doctor-symptoms {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  color: #385646;
+}
+.doctor-symptoms textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid #d8d9d2;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 16px;
+  resize: vertical;
+}
 .doctor-photo-replace {
   position: absolute;
   right: 10px;
