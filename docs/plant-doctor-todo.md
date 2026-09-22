@@ -2,7 +2,7 @@
 
 ## Resume checkpoint
 
-- Status: local implementation and verification complete; authorized release being published.
+- Status: v0.11.0 published; CI and owner live assessment pending.
 - Verified baseline: `de8dba8`, version `0.10.7`.
 - Current work: prepared version 0.11.0 with Gemini transport/selection, explicit
   fallback consent, structured care plans, symptom/history context, migration 0009,
@@ -14,7 +14,9 @@
   in this document, Git, test fixtures, or logs.
 - Verification: backend/frontend suites, Ruff, mypy, ESLint, TypeScript and production
   build pass; see milestone log for counts. Migration from 0008 preserves old visits.
-- Release state: 0.11.0 prepared for authorized commit/push; installation unconfirmed.
+- Release state: v0.11.0 pushed to main as 57cc5c4; installation unconfirmed.
+- CI: https://github.com/Shandowww/plant-care/actions/runs/35751444412
+  was running at handoff. Do not infer success; check its final result.
 
 ## How to resume
 
@@ -96,7 +98,8 @@
 - [x] Review diff for compatibility, secrets, unrelated changes, and release scope.
 - [x] Choose the next version from repository state and synchronize all version
   references listed in `AGENTS.md`; update the changelog.
-- [ ] Commit/push the authorized release and record its commit and CI result.
+- [x] Commit/push the authorized release (57cc5c4).
+- [ ] Confirm final CI result for run 35751444412 (running at handoff).
 - [ ] Record Home Assistant installation and real diagnostic outcome when the
   user confirms them. Do not infer installation from a successful push.
 
