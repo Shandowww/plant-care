@@ -69,6 +69,9 @@ function mockApi(
     .spyOn(globalThis, "fetch")
     .mockImplementation(async (input, init) => {
       const url = String(input);
+      if (url.endsWith("/plant-doctor/verify"))
+        return new Response(JSON.stringify({ok: true, reason: "verified", model: "gemini-test",
+          message: "Key and model verified. No photo sent; generation quota not checked."}), {status: 200});
       if (url.endsWith("/plant-doctor/usage"))
         return new Response(
           JSON.stringify({
@@ -335,7 +338,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.11.0",
+            version: "0.11.1",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -704,6 +707,16 @@ describe("portal", () => {
     const body = request?.[1]?.body as FormData;
     expect(body.get("symptoms")).toBe("Wilted since yesterday");
     expect(body.get("fallback_consent")).toBe("false");
+  });
+
+  it("verifies Gemini setup from Settings without submitting a diagnosis", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", {name: "Settings"}));
+    fireEvent.click(await screen.findByRole("button", {name: "Verify Gemini setup"}));
+    expect(await screen.findByRole("status")).toHaveTextContent("Connection verified (gemini-test)");
+    expect(fetchMock).toHaveBeenCalledWith("api/v1/plant-doctor/verify", expect.objectContaining({method: "POST"}));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/doctor"))).toBe(false);
   });
 
   it("records when a Doctor recommendation is declined", async () => {

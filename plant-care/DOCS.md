@@ -90,6 +90,22 @@ to another compatible image/structured-output Gemini model available to your acc
 Explicit `doctor_provider: gemini` or `cloudflare` pins the provider; a missing
 key does not silently switch providers.
 
+After saving and restarting, open **PlantCare → Settings → Plant Doctor → Verify
+Gemini setup**. This sends a metadata request for the configured model with the
+server-held key. It sends no photo, notes or sensor data, does not generate an AI
+assessment, and does not increment the local diagnosis count. A successful check
+confirms key/model metadata access, not generation quota or image diagnosis quality.
+It checks Gemini only, even if Cloudflare is selected for diagnoses. Missing keys,
+rejected permissions, unavailable models, quota responses, timeouts and network
+failures have separate results. Home Assistant's native add-on configuration form
+does not support this custom action button, so the button lives inside PlantCare.
+
+Use a current Google AI Studio **auth key**: Google's September 2026 transition
+rejects standard keys. PlantCare sends the key via `x-goog-api-key`, compatible
+with the documented auth-key request format. See [Google's key migration
+instructions](https://ai.google.dev/gemini-api/docs/api-key). Never paste keys into
+issue reports or commit them. A diagnosis timeout is not proof of an invalid key.
+
 For Cloudflare, enter `cloudflare_account_id` and `cloudflare_api_token`.
 Accept the terms for
 `@cf/meta/llama-3.2-11b-vision-instruct` in the Cloudflare dashboard before the

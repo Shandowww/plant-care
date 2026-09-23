@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1
+
+- Add Verify Gemini setup in PlantCare Settings: checks the saved key and model
+  metadata without sending plant data or generating an assessment.
+- Distinguish diagnosis timeouts from other provider failures and identify
+  Google's HTTP 400 invalid/expired-key responses as credential errors.
+- Explain verification limits and the Google AI Studio auth-key migration.
+
 ## 0.11.0
 
 - Add configurable Gemini image assessments, retaining Cloudflare for existing

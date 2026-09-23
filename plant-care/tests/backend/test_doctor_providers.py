@@ -11,6 +11,7 @@ from plantcare.doctor_providers import (
     GeminiPlantDoctor,
     bounded_assessment,
     configured_doctor,
+    verify_gemini,
 )
 from plantcare.plant_doctor import PlantDoctorProviderError, _assessment
 from test_plant_doctor import context
@@ -146,7 +147,7 @@ async def test_gemini_timeout():
         raise httpx2.ReadTimeout("timeout", request=request)
 
     doctor = GeminiPlantDoctor("secret", "gemini-test", httpx2.MockTransport(handler))
-    with pytest.raises(PlantDoctorProviderError, match="unavailable"):
+    with pytest.raises(PlantDoctorProviderError, match="timeout"):
         await doctor.analyze(b"jpeg", context())
 
 
@@ -171,13 +172,13 @@ async def test_total_assessment_deadline_returns_provider_error():
         async def analyze(self, photo, ctx):
             await asyncio.sleep(1)
 
-    with pytest.raises(PlantDoctorProviderError, match="unavailable") as error:
+    with pytest.raises(PlantDoctorProviderError, match="timeout") as error:
         await bounded_assessment(SlowProvider(), b"jpeg", context(), "Google Gemini", 0.001)
     assert error.value.provider == "Google Gemini"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", [None, "unavailable", "credentials"])
+@pytest.mark.parametrize("kind", [None, "unavailable", "timeout", "credentials"])
 async def test_fallback_only_on_retryable_failure_not_uncertainty(kind):
     calls = []
 
@@ -199,5 +200,74 @@ async def test_fallback_only_on_retryable_failure_not_uncertainty(kind):
         assert calls == []
     else:
         result = await provider.analyze(b"jpeg", context())
-        assert result.fallback_used == (kind == "unavailable")
+        assert result.fallback_used == (kind in ("unavailable", "timeout"))
         assert len(calls) == (1 if kind else 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [
+        (200, "verified"),
+        (400, "credentials"),
+        (401, "credentials"),
+        (403, "credentials"),
+        (404, "configuration"),
+        (429, "rate_limit"),
+        (503, "unavailable"),
+    ],
+)
+async def test_verify_is_metadata_only_and_redacts_errors(status, reason):
+    key = "synthetic-test-key"
+
+    async def handler(request):
+        assert request.method == "GET"
+        assert request.url.path.endswith("/models/gemini-test")
+        assert request.headers["x-goog-api-key"] == key
+        assert key not in str(request.url)
+        assert request.content == b""
+        payload = (
+            {"name": "models/gemini-test", "supportedGenerationMethods": ["generateContent"]}
+            if status == 200
+            else {
+                "error": {
+                    "message": key,
+                    "details": [{"reason": "API_KEY_INVALID"}] if status == 400 else [],
+                }
+            }
+        )
+        return httpx2.Response(status, json=payload)
+
+    result = await verify_gemini(
+        Settings(gemini_api_key=key, gemini_model="gemini-test"), httpx2.MockTransport(handler)
+    )
+    assert result.reason == reason
+    assert result.ok == (status == 200)
+    assert key not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["missing", "timeout", "network", "malformed", "unsupported"])
+async def test_verify_failures(case):
+    def handler(request):
+        assert case != "missing"
+        if case == "timeout":
+            raise httpx2.ReadTimeout("private detail", request=request)
+        if case == "network":
+            raise httpx2.ConnectError("private detail", request=request)
+        return httpx2.Response(
+            200,
+            json={}
+            if case == "malformed"
+            else {"name": "models/gemini-test", "supportedGenerationMethods": []},
+        )
+
+    settings = Settings(gemini_api_key=None if case == "missing" else "synthetic-test-key")
+    result = await verify_gemini(settings, httpx2.MockTransport(handler))
+    assert not result.ok
+    assert result.reason == {
+        "missing": "not_configured",
+        "malformed": "invalid_response",
+        "unsupported": "configuration",
+    }.get(case, case)
+    assert "private detail" not in result.message

@@ -31,7 +31,12 @@ from .auth import AuthService, Identity, ensure_ingress
 from .care_profiles import care_profile
 from .config import Settings, get_settings
 from .database import Database
-from .doctor_providers import FallbackPlantDoctor, bounded_assessment, configured_doctor
+from .doctor_providers import (
+    FallbackPlantDoctor,
+    bounded_assessment,
+    configured_doctor,
+    verify_gemini,
+)
 from .home_assistant import (
     HomeAssistantClient,
     HomeAssistantNotificationSink,
@@ -70,6 +75,7 @@ from .schemas import (
     ActionSnoozeRequest,
     ActionSummary,
     DashboardSummary,
+    DoctorVerification,
     HealthResponse,
     HomeAssistantEntityListResponse,
     HomeAssistantSyncResponse,
@@ -886,6 +892,13 @@ def create_app(
         except PlantDoctorProviderError as exc:
             logger.warning("plant_doctor_request_failed", provider=exc.provider, reason=exc.kind)
             provider_name = exc.provider
+            if exc.kind == "timeout":
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=f"{provider_name} did not finish within the time limit. "
+                    "This does not mean the key is invalid. Use Verify Gemini setup in "
+                    "PlantCare Settings to check connectivity and model access, then retry.",
+                ) from exc
             if exc.kind == "invalid_response":
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1070,6 +1083,11 @@ def create_app(
         await session.commit()
         await session.refresh(visit)
         return PlantDoctorVisitSummary.model_validate(visit)
+
+    @application.post("/api/v1/plant-doctor/verify", response_model=DoctorVerification)
+    async def verify_doctor_setup(identity: CurrentIdentity) -> DoctorVerification:
+        del identity
+        return await verify_gemini(app_settings)
 
     @application.get(
         "/api/v1/plant-doctor/usage",

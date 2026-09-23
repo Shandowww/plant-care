@@ -6,6 +6,10 @@ export class ApiError extends Error {
   }
 }
 
+export async function verifyGeminiSetup(): Promise<{ok: boolean; reason: string; message: string; model: string}> {
+  return jsonMutation("/api/v1/plant-doctor/verify");
+}
+
 function ingressRelative(path: string): string {
   return path.replace(/^\/+/, "");
 }

@@ -92,7 +92,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.11.0",
+        "version": "0.11.1",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -431,6 +431,14 @@ def test_plant_doctor_reports_missing_configuration(development_client: TestClie
     assert "Cloudflare Account ID" in response.json()["detail"]
 
 
+def test_verify_missing_key_does_not_count_as_a_diagnosis(development_client):
+    before = development_client.get("/api/v1/plant-doctor/usage").json()["checks_today"]
+    result = development_client.post("/api/v1/plant-doctor/verify")
+    assert result.status_code == 200
+    assert result.json()["reason"] == "not_configured"
+    assert development_client.get("/api/v1/plant-doctor/usage").json()["checks_today"] == before
+
+
 def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> None:
     doctor = StubPlantDoctor()
     settings = Settings(
@@ -525,6 +533,7 @@ def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> 
     ("kind", "expected_status", "message"),
     [
         ("quota", 429, "allowance has been reached"),
+        ("timeout", 504, "did not finish within the time limit"),
         ("credentials", 401, "expired, revoked"),
         ("configuration", 403, "model agreement"),
         ("capacity", 503, "out of capacity"),

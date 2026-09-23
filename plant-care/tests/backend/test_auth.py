@@ -21,6 +21,12 @@ def auth_client(tmp_path: Path) -> TestClient:
 
 
 def test_lan_password_can_only_be_created_from_ingress(auth_client: TestClient) -> None:
+    assert (
+        auth_client.post(
+            "/api/v1/plant-doctor/verify", headers={"x-plantcare-surface": "lan"}
+        ).status_code
+        == 401
+    )
     denied = auth_client.post(
         "/api/v1/auth/password",
         headers={"x-plantcare-surface": "lan"},

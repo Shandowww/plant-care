@@ -109,6 +109,7 @@ class PlantDoctorProviderError(RuntimeError):
             "configuration",
             "invalid_response",
             "unavailable",
+            "timeout",
         ],
         provider: str = PROVIDER_NAME,
     ) -> None:

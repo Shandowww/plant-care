@@ -138,6 +138,13 @@ class DoctorCarePlan(BaseModel):
     reassess: str = ""
 
 
+class DoctorVerification(BaseModel):
+    ok: bool
+    reason: str
+    message: str
+    model: str
+
+
 class PlantDoctorResponse(BaseModel):
     care_plan: DoctorCarePlan = Field(default_factory=DoctorCarePlan)
     total_tokens: int | None = None

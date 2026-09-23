@@ -48,6 +48,7 @@ import {
   updatePlantDoctorFeedback,
   updatePlantEntityMapping,
   uploadPlantPhoto,
+  verifyGeminiSetup,
 } from "./api";
 import { PlantCard } from "./components";
 import { plantImage, plantPhotoUrl } from "./plant-images";
@@ -1312,6 +1313,20 @@ function SettingsView({
   onSaved: () => void;
 }) {
   const notificationReady = health?.home_assistant_notifications_enabled;
+  const [verifying, setVerifying] = useState(false);
+  const [verification, setVerification] = useState<string | null>(null);
+  async function verify() {
+    setVerifying(true);
+    setVerification(null);
+    try {
+      const result = await verifyGeminiSetup();
+      setVerification(`${result.ok ? "Connection verified" : "Not verified"} (${result.model}): ${result.message}`);
+    } catch (reason) {
+      setVerification(reason instanceof Error ? reason.message : "Verification could not complete. Please retry.");
+    } finally {
+      setVerifying(false);
+    }
+  }
   return (
     <div className="content page-view">
       <section className="intro">
@@ -1405,11 +1420,17 @@ function SettingsView({
               </strong>
               <small>
                 Choose Gemini or Cloudflare in the Home Assistant add-on configuration.
+                Save and restart PlantCare after changing credentials.
                 Credentials are read by the app backend only. Diagnostic photos
                 are sent only after consent for each check.
               </small>
             </div>
           </div>
+          <p>Check the saved Gemini key and model without sending a photo or generating an assessment. This checks Gemini only, not Cloudflare fallback.</p>
+          <button className="secondary-button" type="button" disabled={verifying} onClick={() => void verify()}>
+            {verifying ? "Verifying…" : "Verify Gemini setup"}
+          </button>
+          {verification && <p role="status">{verification}</p>}
         </section>
       </div>
       <button
