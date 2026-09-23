@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2
+
+- Retry Gemini HTTP 503 once within the diagnosis deadline and explain persistent
+  service unavailability separately from invalid credentials or quota limits.
+- Accept MPO multi-picture JPEG and AVIF gallery photos for covers and diagnosis;
+  normalize only the primary still to metadata-free JPEG, preserving upload limits.
+
 ## 0.11.1
 
 - Add Verify Gemini setup in PlantCare Settings: checks the saved key and model

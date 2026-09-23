@@ -338,7 +338,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.11.1",
+            version: "0.11.2",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -696,7 +696,7 @@ describe("portal", () => {
     doctorDialog.scrollTop = 500;
     fireEvent.click(screen.getByRole("button", {name: "Send for diagnosis"}));
     await screen.findByText("The leaves look generally healthy.");
-    expect(doctorDialog.scrollTop).toBe(0);
+    await waitFor(() => expect(doctorDialog.scrollTop).toBe(0));
     expect(screen.getByText("Plant identity is not confirmed.")).toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Add AI recommendation"})).toBeEnabled();
     expect(screen.getByText("Attention soon")).toBeInTheDocument();

@@ -70,6 +70,8 @@ def _check_gemini_status(response: httpx2.Response) -> None:
         raise PlantDoctorProviderError("credentials", GEMINI)
     if response.status_code == 429:
         raise PlantDoctorProviderError("rate_limit", GEMINI)
+    if response.status_code == 503:
+        raise PlantDoctorProviderError("capacity", GEMINI)
     if response.status_code in (400, 404):
         raise PlantDoctorProviderError("configuration", GEMINI)
     if not response.is_success:
@@ -136,6 +138,8 @@ async def verify_gemini(
             "for the limit and reset time.",
             "unavailable": "Google's API returned a service error. Retry shortly; "
             "the key has not been verified.",
+            "capacity": "Google returned HTTP 503: its service is temporarily unavailable "
+            "or overloaded. Retry later; this does not indicate an invalid key.",
             "invalid_response": "Google returned unexpected model information. Retry shortly.",
         }
         return result(False, exc.kind, messages.get(exc.kind, "Gemini verification failed."))
@@ -162,7 +166,8 @@ class GeminiPlantDoctor:
     async def analyze(self, photo: bytes, context: PlantDoctorContext) -> PlantDoctorResponse:
         try:
             async with httpx2.AsyncClient(timeout=60, transport=self.transport) as client:
-                response = await client.post(
+                request = client.build_request(
+                    "POST",
                     f"https://generativelanguage.googleapis.com/v1beta/models/"
                     f"{self.model}:generateContent",
                     headers={"x-goog-api-key": self.api_key},
@@ -189,6 +194,13 @@ class GeminiPlantDoctor:
                         },
                     },
                 )
+                # Retry only an explicit temporary rejection, never an ambiguous
+                # network timeout or a completed but malformed assessment. The
+                # caller's overall deadline includes both attempts and backoff.
+                response = await client.send(request)
+                if response.status_code == 503:
+                    await asyncio.sleep(1)
+                    response = await client.send(request)
         except httpx2.TimeoutException as exc:
             raise PlantDoctorProviderError("timeout", GEMINI) from exc
         except httpx2.NetworkError as exc:

@@ -92,7 +92,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.11.1",
+        "version": "0.11.2",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -439,6 +439,31 @@ def test_verify_missing_key_does_not_count_as_a_diagnosis(development_client):
     assert development_client.get("/api/v1/plant-doctor/usage").json()["checks_today"] == before
 
 
+@pytest.mark.parametrize("image_format", ["MPO", "AVIF", "HEIF"])
+def test_doctor_accepts_gallery_photo_content_despite_generic_mime(tmp_path, image_format):
+    doctor = StubPlantDoctor()
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'doctor.db'}",
+        static_dir=tmp_path / "static",
+    )
+    source = BytesIO()
+    Image.new("RGB", (64, 64), "green").save(source, format=image_format)
+    with TestClient(create_app(settings, plant_doctor_client=doctor)) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        response = client.post(
+            f"/api/v1/plants/{plant['id']}/doctor",
+            data={"consent": "true"},
+            files={"photo": ("IMG_0001.jpg", source.getvalue(), "application/octet-stream")},
+        )
+        assert response.status_code == 200
+    assert len(doctor.calls) == 1
+    with Image.open(BytesIO(doctor.calls[0][0])) as normalized:
+        assert normalized.format == "JPEG"
+
+
 def test_plant_doctor_sends_reduced_photo_and_sensor_context(tmp_path: Path) -> None:
     doctor = StubPlantDoctor()
     settings = Settings(
@@ -558,6 +583,27 @@ def test_plant_doctor_provider_errors_are_actionable(
 
     assert response.status_code == expected_status
     assert message in response.json()["detail"]
+
+
+def test_gemini_service_rejection_has_specific_message_without_saving_visit(tmp_path):
+    class UnavailableGemini:
+        async def analyze(self, photo, context):
+            raise PlantDoctorProviderError("capacity", "Google Gemini")
+
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'doctor.db'}",
+        static_dir=tmp_path / "static",
+    )
+    with TestClient(create_app(settings, plant_doctor_client=UnavailableGemini())) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        response = request_diagnosis(client, plant["id"], diagnostic_photo())
+        assert response.status_code == 503
+        assert "Google Gemini returned HTTP 503" in response.json()["detail"]
+        assert "after one retry" in response.json()["detail"]
+        assert client.get("/api/v1/plant-doctor/usage").json()["checks_today"] == 0
 
 
 def test_plant_can_be_edited_and_archived_without_losing_history(

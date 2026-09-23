@@ -73,7 +73,8 @@ stored in the repository.
 ## Private plant photos
 
 Personal photos remain inside the PlantCare app data directory. Uploads are
-limited to 10 MB and JPEG, PNG, WebP, HEIC, or HEIF input. PlantCare corrects orientation,
+limited to 10 MB and JPEG (including MPO multi-picture exports), PNG, WebP,
+HEIC, HEIF, or AVIF input. Only the primary still image is used. PlantCare corrects orientation,
 resizes the image to at most 2048 pixels on either side, strips embedded metadata,
 and stores a private JPEG. A cover photo can be selected during plant creation;
 replacing or removing it later is part of **Edit plant**, and cards and details
@@ -81,6 +82,13 @@ update automatically. On iPhone and iPad, the system picker offers the photo
 library, camera, and files rather than opening the camera automatically.
 
 ## Optional Plant Doctor
+
+Gemini HTTP 503 means Google is temporarily unavailable or overloaded, not a
+reported credential or quota failure. PlantCare retries that explicit response
+once after a short delay, within the existing overall deadline. Persistent 503s
+show a specific message; retry later. Other errors are not automatically retried.
+Retries may also count toward provider usage; the local counter still counts only
+completed checks. No other provider receives the photo without fallback consent.
 
 In Home Assistant, open **Settings → Apps → Plant Care Dashboard → Configuration**.
 For Gemini, enter your own `gemini_api_key`, leave `doctor_provider: auto`, save,

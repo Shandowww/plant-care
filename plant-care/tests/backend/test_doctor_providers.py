@@ -99,22 +99,58 @@ async def test_gemini_sends_private_header_photo_context_and_preserves_uncertain
         (429, "rate_limit"),
         (400, "configuration"),
         (404, "configuration"),
-        (503, "unavailable"),
+        (503, "capacity"),
     ],
 )
 async def test_gemini_errors(status, kind):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx2.Response(status, json={"error": {"message": "private detail"}})
+
     doctor = GeminiPlantDoctor(
         "secret",
         "gemini-test",
-        httpx2.MockTransport(
-            lambda _: httpx2.Response(status, json={"error": {"message": "private detail"}}),
-        ),
+        httpx2.MockTransport(handler),
     )
     with pytest.raises(PlantDoctorProviderError) as error:
         await doctor.analyze(b"jpeg", context())
     assert error.value.kind == kind
     assert error.value.provider == "Google Gemini"
     assert "private detail" not in str(error.value)
+    assert len(calls) == (2 if status == 503 else 1)
+
+
+@pytest.mark.asyncio
+async def test_gemini_recovers_after_one_service_rejection():
+    calls = []
+
+    def handler(request):
+        calls.append(request.content)
+        if len(calls) == 1:
+            return httpx2.Response(503)
+        return httpx2.Response(200, json=envelope(assessment()))
+
+    doctor = GeminiPlantDoctor("secret", "gemini-test", httpx2.MockTransport(handler))
+    result = await doctor.analyze(b"jpeg", context())
+    assert result.summary == assessment()["summary"]
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+
+
+@pytest.mark.asyncio
+async def test_gemini_retry_respects_overall_deadline():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx2.Response(503)
+
+    doctor = GeminiPlantDoctor("secret", "gemini-test", httpx2.MockTransport(handler))
+    with pytest.raises(PlantDoctorProviderError, match="timeout"):
+        await bounded_assessment(doctor, b"jpeg", context(), "Google Gemini", seconds=0.01)
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -214,7 +250,7 @@ async def test_fallback_only_on_retryable_failure_not_uncertainty(kind):
         (403, "credentials"),
         (404, "configuration"),
         (429, "rate_limit"),
-        (503, "unavailable"),
+        (503, "capacity"),
     ],
 )
 async def test_verify_is_metadata_only_and_redacts_errors(status, reason):

@@ -2,6 +2,19 @@
 
 ## Resume checkpoint
 
+- Current follow-up (v0.11.2, push authorized): Gemini 503 now retries once
+  after one second within the existing overall deadline, then gives a specific
+  service-unavailable message. No retries of other errors or unconsented fallback.
+  Photo normalization now accepts MPO multi-picture JPEG and AVIF, with picker
+  filters updated. Regression tests use generated images, no private uploads.
+  The user's exact gallery format remains unconfirmed without the original file.
+  Google dashboard confirms upstream 503; a local fix cannot resolve its outage.
+- Verification: 137 backend + 27 frontend tests; Ruff, mypy, ESLint, TypeScript,
+  production build and diff check pass. No live AI calls or real iPhone QA.
+  Version references synchronized to 0.11.2. Next: commit/push and check CI.
+  After HA update, owner retries gallery upload
+  and Gemini diagnosis; obtain original rejected photo privately if still failing.
+
 - Follow-up 2026-09-23: Gemini setup verification button and specific diagnosis
   timeout errors published as v0.11.1 (a416768). All 122 backend and 27 frontend
   tests pass, as do Ruff, mypy, ESLint, TypeScript, build and diff checks. The button

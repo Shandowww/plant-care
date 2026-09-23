@@ -940,7 +940,11 @@ def create_app(
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=(
-                        f"{provider_name} is temporarily out of capacity. Your daily "
+                        "Google Gemini returned HTTP 503: the service is temporarily "
+                        "unavailable or overloaded, even after one retry. Try again later. "
+                        "Google did not report an invalid key or a daily-quota limit."
+                        if provider_name == "Google Gemini"
+                        else f"{provider_name} is temporarily out of capacity. Your daily "
                         "allowance was not identified as the cause; try again shortly."
                     ),
                 ) from exc

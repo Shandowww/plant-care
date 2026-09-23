@@ -2305,14 +2305,14 @@ function DoctorDialog({
                   <ImagePlus size={17} />
                   <span>
                     <strong>Choose a different photo</strong>
-                    <small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small>
+                    <small>JPEG, PNG, WebP, HEIC/HEIF, or AVIF · maximum 10 MB</small>
                   </span>
                 </button>
                 <input
                   ref={diagnosticPhotoInputRef}
                   className="visually-hidden"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.jpg,.jpeg,.heic,.heif,.avif,.mpo"
                   onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
                 />
               </div>
@@ -2332,7 +2332,7 @@ function DoctorDialog({
                   </span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.jpg,.jpeg,.heic,.heif,.avif,.mpo"
                     onChange={(event) =>
                       setPhotoFile(event.target.files?.[0] ?? null)
                     }
@@ -2992,11 +2992,11 @@ function AddPlantDialog({
                   <ImagePlus size={18} />
                   <span>
                     <strong>Choose or take a cover photo</strong>
-                    <small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small>
+                    <small>JPEG, PNG, WebP, HEIC/HEIF, or AVIF · maximum 10 MB</small>
                   </span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.jpg,.jpeg,.heic,.heif,.avif,.mpo"
                     onChange={(event) =>
                       setPhotoFile(event.target.files?.[0] ?? null)
                     }
@@ -3203,11 +3203,11 @@ function EditPlantDialog({
                         ? "Choose a replacement"
                         : "Choose or take a photo"}
                     </strong>
-                    <small>JPEG, PNG, WebP, or HEIC · maximum 10 MB</small>
+                    <small>JPEG, PNG, WebP, HEIC/HEIF, or AVIF · maximum 10 MB</small>
                   </span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                    accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,.jpg,.jpeg,.heic,.heif,.avif,.mpo"
                     onChange={(event) => {
                       setPhotoFile(event.target.files?.[0] ?? null);
                       setDeleteCurrentPhoto(false);

@@ -11,7 +11,9 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
 MAX_IMAGE_DIMENSION = 2048
 ANALYSIS_IMAGE_DIMENSION = 1280
-ALLOWED_FORMATS = {"HEIF", "JPEG", "PNG", "WEBP"}
+# HDR/depth JPEG exports may be identified by Pillow as multi-picture MPO.
+# Decode only the primary still image, never auxiliary frames or metadata.
+ALLOWED_FORMATS = {"HEIF", "JPEG", "MPO", "AVIF", "PNG", "WEBP"}
 
 register_heif_opener(thumbnails=False)
 
@@ -40,7 +42,7 @@ def _normalize_photo(data: bytes, *, max_dimension: int, quality: int) -> bytes:
             Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
             with Image.open(BytesIO(data)) as source:
                 if source.format not in ALLOWED_FORMATS:
-                    raise InvalidPhotoError("Use a JPEG, PNG, WebP, HEIC, or HEIF photo.")
+                    raise InvalidPhotoError("Use a JPEG, PNG, WebP, HEIC, HEIF, or AVIF photo.")
                 source.load()
                 image = ImageOps.exif_transpose(source)
                 image.thumbnail(
