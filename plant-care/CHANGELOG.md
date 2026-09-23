@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.3
+
+- Use low thinking effort for the default Gemini 3.6 Flash model to reduce latency.
+- Add redacted per-attempt timing/status diagnostics for Gemini timeouts and retries.
+
 ## 0.11.2
 
 - Retry Gemini HTTP 503 once within the diagnosis deadline and explain persistent

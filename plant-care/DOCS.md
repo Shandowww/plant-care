@@ -83,6 +83,16 @@ library, camera, and files rather than opening the camera automatically.
 
 ## Optional Plant Doctor
 
+The default Gemini 3.6 Flash request uses Google's `low` thinking level to reduce
+latency while retaining the structured care plan. Other configured models keep
+their provider defaults. This is not a guarantee that a busy service finishes
+within PlantCare's 50-second total deadline (20 seconds before consented fallback).
+If a check times out, include the `plant_doctor_gemini_attempt` log lines when
+reporting it: they contain model, attempt, elapsed seconds, HTTP status (if any)
+and outcome, never the key, photo, prompt or response. `cancelled` with no status
+means no complete HTTP response arrived before cancellation; it does not prove
+that the key is invalid or that Google did no processing.
+
 Gemini HTTP 503 means Google is temporarily unavailable or overloaded, not a
 reported credential or quota failure. PlantCare retries that explicit response
 once after a short delay, within the existing overall deadline. Persistent 503s

@@ -14,6 +14,7 @@ from plantcare.doctor_providers import (
     verify_gemini,
 )
 from plantcare.plant_doctor import PlantDoctorProviderError, _assessment
+from structlog.testing import capture_logs
 from test_plant_doctor import context
 
 
@@ -55,6 +56,46 @@ def envelope(value: dict, finish: str = "STOP") -> dict:
         ],
         "usageMetadata": {"totalTokenCount": 732},
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-test"])
+async def test_gemini_latency_setting_and_private_attempt_diagnostics(model):
+    def handler(request):
+        config = json.loads(request.content)["generationConfig"]
+        if model == "gemini-3.6-flash":
+            assert config["thinkingConfig"] == {"thinkingLevel": "low"}
+        else:
+            assert "thinkingConfig" not in config
+        return httpx2.Response(200, json=envelope(assessment()))
+
+    doctor = GeminiPlantDoctor("private-key", model, httpx2.MockTransport(handler))
+    with capture_logs() as events:
+        await doctor.analyze(b"private-photo", context())
+    event = next(e for e in events if e["event"] == "plant_doctor_gemini_attempt")
+    assert event["status_code"] == 200
+    assert event["attempt"] == 1
+    assert event["outcome"] == "response"
+    assert event["elapsed_seconds"] >= 0
+    assert "private-key" not in str(events)
+    assert "private-photo" not in str(events)
+    assert assessment()["summary"] not in str(events)
+
+
+@pytest.mark.asyncio
+async def test_gemini_logs_inflight_deadline_without_retrying():
+    async def handler(request):
+        await asyncio.sleep(1)
+        return httpx2.Response(200, json=envelope(assessment()))
+
+    doctor = GeminiPlantDoctor("secret", "gemini-test", httpx2.MockTransport(handler))
+    with capture_logs() as events:
+        with pytest.raises(PlantDoctorProviderError, match="timeout"):
+            await bounded_assessment(doctor, b"jpeg", context(), "Google Gemini", seconds=0.01)
+    attempts = [e for e in events if e["event"] == "plant_doctor_gemini_attempt"]
+    assert len(attempts) == 1
+    assert attempts[0]["status_code"] is None
+    assert attempts[0]["outcome"] == "cancelled"
 
 
 @pytest.mark.asyncio

@@ -3,8 +3,10 @@
 import asyncio
 import base64
 import json
+from time import monotonic
 
 import httpx2
+import structlog
 from pydantic import ValidationError
 
 from .config import Settings
@@ -27,6 +29,7 @@ from .schemas import (
 
 GEMINI = "Google Gemini"
 CLOUDFLARE = "Cloudflare Workers AI"
+logger = structlog.get_logger()
 
 
 async def bounded_assessment(
@@ -163,6 +166,34 @@ class GeminiPlantDoctor:
         self.model = model
         self.transport = transport
 
+    async def _send(
+        self, client: httpx2.AsyncClient, request: httpx2.Request, attempt: int
+    ) -> httpx2.Response:
+        started = monotonic()
+        status_code: int | None = None
+        outcome = "cancelled"
+        try:
+            response = await client.send(request)
+            status_code = response.status_code
+            outcome = "response"
+            return response
+        except httpx2.TimeoutException:
+            outcome = "transport_timeout"
+            raise
+        except httpx2.NetworkError:
+            outcome = "network_error"
+            raise
+        finally:
+            # Do not include headers, URL, photo, prompt, or provider payload.
+            logger.info(
+                "plant_doctor_gemini_attempt",
+                model=self.model,
+                attempt=attempt,
+                outcome=outcome,
+                status_code=status_code,
+                elapsed_seconds=round(monotonic() - started, 2),
+            )
+
     async def analyze(self, photo: bytes, context: PlantDoctorContext) -> PlantDoctorResponse:
         try:
             async with httpx2.AsyncClient(timeout=60, transport=self.transport) as client:
@@ -191,16 +222,23 @@ class GeminiPlantDoctor:
                             "responseMimeType": "application/json",
                             "responseJsonSchema": _response_format()["json_schema"],
                             "maxOutputTokens": 4096,
+                            # Explicitly lower latency for the supported default
+                            # model; do not send incompatible options to overrides.
+                            **(
+                                {"thinkingConfig": {"thinkingLevel": "low"}}
+                                if self.model == "gemini-3.6-flash"
+                                else {}
+                            ),
                         },
                     },
                 )
                 # Retry only an explicit temporary rejection, never an ambiguous
                 # network timeout or a completed but malformed assessment. The
                 # caller's overall deadline includes both attempts and backoff.
-                response = await client.send(request)
+                response = await self._send(client, request, 1)
                 if response.status_code == 503:
                     await asyncio.sleep(1)
-                    response = await client.send(request)
+                    response = await self._send(client, request, 2)
         except httpx2.TimeoutException as exc:
             raise PlantDoctorProviderError("timeout", GEMINI) from exc
         except httpx2.NetworkError as exc:
