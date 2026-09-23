@@ -3,15 +3,16 @@
 ## Resume checkpoint
 
 - Follow-up 2026-09-23: Gemini setup verification button and specific diagnosis
-  timeout errors packaged as v0.11.1 for authorized publication. All 122 backend and 27 frontend
+  timeout errors published as v0.11.1 (a416768). All 122 backend and 27 frontend
   tests pass, as do Ruff, mypy, ESLint, TypeScript, build and diff checks. The button
   lives in PlantCare Settings, not Home Assistant's schema-rendered config form;
   it requests model metadata only, never sends plant data or generates an assessment.
   Original live failure remains unconfirmed until verification/logs from the Pi.
-  Next: confirm v0.11.1 push/CI; owner updates, saves
+  CI: https://github.com/Shandowww/plant-care/actions/runs/35819478053 (queued at handoff).
+  Next: confirm CI; owner updates, saves
   credentials/restarts and uses Settings → Verify Gemini setup. No real key used
   in local verification, and no diagnostic quota consumed by these tests.
-- Status: v0.11.0 published; CI and owner live assessment pending.
+- Status: v0.11.1 published; owner setup verification and live assessment pending.
 - Verified baseline: `de8dba8`, version `0.10.7`.
 - Current work: prepared version 0.11.0 with Gemini transport/selection, explicit
   fallback consent, structured care plans, symptom/history context, migration 0009,
@@ -25,7 +26,7 @@
   build pass; see milestone log for counts. Migration from 0008 preserves old visits.
 - Release state: v0.11.0 pushed to main as 57cc5c4; installation unconfirmed.
 - CI: https://github.com/Shandowww/plant-care/actions/runs/35751444412
-  was running at handoff. Do not infer success; check its final result.
+  completed successfully (v0.11.0). Follow-up v0.11.1 CI is linked above.
 
 ## How to resume
 
