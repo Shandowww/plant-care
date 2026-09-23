@@ -2,18 +2,19 @@
 
 ## Resume checkpoint
 
-- New timeout follow-up (v0.11.3 release preparation): owner now sees diagnosis deadline
+- New timeout follow-up (v0.11.3 published, abb74c9): owner now sees diagnosis deadline
   error. Keep the 50-second ingress-safe deadline; lower default Gemini 3.6 Flash
   thinking to low per Google's documented latency guidance. Other model overrides
   are unchanged. Add per-attempt elapsed time/status/outcome logs without private
   request/response data, including cancellation before response and retry attempts.
   This mitigates a possible source of latency, not a confirmed live fix. Owner
   confirmed gemini-3.6-flash and successful metadata/key verification in the UI.
-  Next: publish requested update, then collect new timing
+  Next: owner installs update, then collect new timing
   logs and a real assessment outcome. No live provider call made locally.
   Release verification: all 141 backend + 27 frontend tests, Ruff, mypy, ESLint,
   TypeScript, production build and diff checks pass. Version references synchronized
-  to 0.11.3; ready for the authorized commit/push. Live diagnosis remains unverified.
+  to 0.11.3; pushed to main. Live diagnosis remains unverified.
+  CI in progress: https://github.com/Shandowww/plant-care/actions/runs/35925726054
 
 - Current follow-up (v0.11.2, published as 6dc0931): Gemini 503 now retries once
   after one second within the existing overall deadline, then gives a specific
