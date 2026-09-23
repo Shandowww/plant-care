@@ -2,7 +2,7 @@
 
 ## Resume checkpoint
 
-- Current follow-up (v0.11.2, push authorized): Gemini 503 now retries once
+- Current follow-up (v0.11.2, published as 6dc0931): Gemini 503 now retries once
   after one second within the existing overall deadline, then gives a specific
   service-unavailable message. No retries of other errors or unconsented fallback.
   Photo normalization now accepts MPO multi-picture JPEG and AVIF, with picker
@@ -11,7 +11,10 @@
   Google dashboard confirms upstream 503; a local fix cannot resolve its outage.
 - Verification: 137 backend + 27 frontend tests; Ruff, mypy, ESLint, TypeScript,
   production build and diff check pass. No live AI calls or real iPhone QA.
-  Version references synchronized to 0.11.2. Next: commit/push and check CI.
+  Version references synchronized to 0.11.2. Release checks also corrected a
+  flaky scroll-reset test to await the React effect; all checks then passed.
+  CI is in progress: https://github.com/Shandowww/plant-care/actions/runs/35855178560
+  Next: confirm CI (0.11.1's prior run was cancelled).
   After HA update, owner retries gallery upload
   and Gemini diagnosis; obtain original rejected photo privately if still failing.
 
