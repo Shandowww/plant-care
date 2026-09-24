@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0
+
+- Select multiple Home Assistant Companion app devices in PlantCare Settings for
+  care alerts, with an optional copy in the Home Assistant notification panel.
+- Persist household recipients and per-device delivery progress; retry failed
+  recipients and clear alerts on their original devices when conditions recover.
+
 ## 0.11.3
 
 - Use low thinking effort for the default Gemini 3.6 Flash model to reduce latency.

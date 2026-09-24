@@ -309,7 +309,22 @@ matching monitoring-managed action and dismisses its notification automatically.
 Battery recovery requires at least 25%, providing hysteresis around the warning
 threshold. Delivery can be disabled in the same app configuration screen.
 
-Persistent notifications appear in Home Assistant's notification panel rather
-than as direct iOS or Android push alerts. A future mobile-notify option can send
-the same event to selected Home Assistant Companion App notify entities without
-changing the sensor monitor or storing additional credentials.
+In **PlantCare → Settings → Home Assistant notifications**, select one or more
+phones/tablets and press **Save notification recipients**. Devices are discovered
+from Home Assistant's `notify.mobile_app_*` actions. Install/sign in to the Home
+Assistant Companion app and allow notifications on each device first. Use
+**Refresh devices** after registering a device.
+
+Turn off **Also show in Home Assistant notification panel** to receive only mobile
+push alerts. Selecting no devices and disabling the panel leaves alerts inside
+PlantCare only. The add-on's `home_assistant_notifications` option remains the
+master delivery switch; the simulator never sends notifications.
+
+Selections are household-wide, stored in the persistent database, and apply to
+new alerts without a restart. Existing alerts retain their original recipients
+for retries and clearing. Delivery acknowledgements are saved per recipient, so
+an unavailable device does not cause repeated sends to successful recipients.
+Phone alerts use the same plant link and a stable tag; recovery requests clearing
+on the original devices. iOS/Android restrictions may delay clearing, and the
+plant deep link still needs verification on a real device via your HA connection.
+No additional credentials are required. See the [Companion notification guide](https://companion.home-assistant.io/docs/notifications/notifications-basic/).

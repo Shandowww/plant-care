@@ -6,6 +6,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ENTITY_ID_PATTERN = r"^[a-z0-9_]+\.[a-z0-9_]+$"
 
 
+class NotificationPreferences(BaseModel):
+    devices: list[str] = Field(default_factory=list, max_length=20)
+    persistent: bool = True
+
+    @field_validator("devices")
+    @classmethod
+    def valid_devices(cls, values: list[str]) -> list[str]:
+        import re
+
+        if any(not re.fullmatch(r"mobile_app_[a-z0-9_]+", value) for value in values):
+            raise ValueError("Choose Home Assistant Companion app devices only.")
+        return list(dict.fromkeys(values))
+
+
 class PlantEntityMappingSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

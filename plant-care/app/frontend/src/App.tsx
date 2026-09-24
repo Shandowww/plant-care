@@ -1,4 +1,5 @@
 import gardenerUrl from "./gardener.svg";
+import { NotificationSettings } from "./NotificationSettings";
 import { plantStatusLabel } from "./plant-status";
 import {
   Bell,
@@ -1377,20 +1378,19 @@ function SettingsView({
             <div>
               <strong>
                 {notificationReady
-                  ? "Persistent notifications enabled"
+                  ? "Care notifications enabled"
                   : health?.simulator
                     ? "Disabled in the local simulator"
                     : "Disabled in app configuration"}
               </strong>
               <small>
-                New sensor warnings appear in Home Assistant with a link to the
-                affected plant. They are dismissed automatically after the
-                sensor value changes. Change delivery or the threshold under
-                Home Assistant → Settings → Apps → Plant Care Dashboard →
-                Configuration, then restart the app.
+                Care alerts follow the existing plant monitoring rules. When a
+                condition recovers, PlantCare asks Home Assistant to clear its
+                alert; phone restrictions may delay removal.
               </small>
             </div>
           </div>
+          <NotificationSettings enabled={Boolean(notificationReady)} />
         </section>
         <section className="settings-card settings-card--wide">
           <h3>Home Assistant integration</h3>

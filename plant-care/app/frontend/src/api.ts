@@ -6,6 +6,24 @@ export class ApiError extends Error {
   }
 }
 
+export type NotificationPreferences = { devices: string[]; persistent: boolean };
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  const response = await fetch(ingressRelative("/api/v1/notifications/preferences"));
+  if (!response.ok) throw new Error("Notification preferences could not be loaded.");
+  return response.json();
+}
+
+export async function getNotificationDevices(): Promise<string[]> {
+  const response = await fetch(ingressRelative("/api/v1/notifications/devices"));
+  if (!response.ok) throw new Error("Could not load notification devices. Please retry.");
+  return response.json();
+}
+
+export function saveNotificationPreferences(value: NotificationPreferences): Promise<NotificationPreferences> {
+  return jsonMutation("/api/v1/notifications/preferences", value);
+}
+
 export async function verifyGeminiSetup(): Promise<{ok: boolean; reason: string; message: string; model: string}> {
   return jsonMutation("/api/v1/plant-doctor/verify");
 }

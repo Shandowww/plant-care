@@ -69,6 +69,10 @@ function mockApi(
     .spyOn(globalThis, "fetch")
     .mockImplementation(async (input, init) => {
       const url = String(input);
+      if (url.endsWith("/notifications/preferences"))
+        return new Response(JSON.stringify(init?.method === "POST" ? JSON.parse(String(init.body)) : { devices: [], persistent: true }), { status: 200 });
+      if (url.endsWith("/notifications/devices"))
+        return new Response(JSON.stringify(["mobile_app_iphone", "mobile_app_tablet"]), { status: 200 });
       if (url.endsWith("/plant-doctor/verify"))
         return new Response(JSON.stringify({ok: true, reason: "verified", model: "gemini-test",
           message: "Key and model verified. No photo sent; generation quota not checked."}), {status: 200});
@@ -338,7 +342,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.11.3",
+            version: "0.12.0",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -362,6 +366,19 @@ function chooseDiagnosticPhoto() {
 }
 
 describe("portal", () => {
+  it("selects multiple notification devices and disables the panel copy", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "iphone" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "tablet" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Also show in Home Assistant notification panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save notification recipients" }));
+    await screen.findByText(/Notification recipients saved/);
+    expect(fetchMock).toHaveBeenCalledWith("api/v1/notifications/preferences", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ devices: ["mobile_app_iphone", "mobile_app_tablet"], persistent: false }),
+    }));
+  });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();

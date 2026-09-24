@@ -1,5 +1,5 @@
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Protocol
@@ -61,6 +61,7 @@ class NotificationEvent:
     plant_name: str
     title: str | None = None
     message: str | None = None
+    delivered_to: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

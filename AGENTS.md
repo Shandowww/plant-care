@@ -32,6 +32,8 @@
   Pending send/dismiss events are AppSetting notification.pending.* records written
   in the action transaction; delivery retries after commit under a delivery lock.
 - Preserve notification IDs/deduplication and atomicity when changing sync behavior.
+- notifications.py owns household recipients, original alert routing, and per-device
+  acknowledgements. Use JSON replacement (not in-place edits) for durable progress.
 - Doctor calls require consent and a separate diagnostic photo, not the cover photo.
   AI recommendations require explicit user acceptance; history is stored locally.
 

@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import quote
 
 import structlog
 from fastapi import (
@@ -52,6 +51,7 @@ from .models import (
     PlantEntityMapping,
     Reading,
 )
+from .notifications import PREFERENCES_KEY, deliver, preferences
 from .photos import (
     MAX_UPLOAD_BYTES,
     InvalidPhotoError,
@@ -80,6 +80,7 @@ from .schemas import (
     HomeAssistantEntityListResponse,
     HomeAssistantSyncResponse,
     LoginRequest,
+    NotificationPreferences,
     PasswordRequest,
     PlantCreateRequest,
     PlantDoctorActionRequest,
@@ -179,26 +180,10 @@ def create_app(
             for pending_setting in pending:
                 event = NotificationEvent(**pending_setting.typed_value)
                 try:
-                    if event.operation == "dismiss":
-                        await notification_sink.dismiss_persistent_notification(
-                            notification_id=event.notification_id
-                        )
-                    else:
-                        ingress_url = await notification_sink.ingress_url()
-                        plant_url = f"{ingress_url}#plants/{quote(event.plant_id, safe='')}"
-                        message = f"{event.message}\n\n[Open this plant in PlantCare]({plant_url})"
-                        await notification_sink.create_persistent_notification(
-                            notification_id=event.notification_id,
-                            title=event.title or "PlantCare sensor warning",
-                            message=message,
-                        )
                     async with database.session_factory() as delivery_session:
-                        saved = await delivery_session.scalar(
-                            select(AppSetting).where(AppSetting.key == pending_setting.key)
-                        )
-                        if saved is not None and saved.typed_value == pending_setting.typed_value:
-                            await delivery_session.delete(saved)
-                            await delivery_session.commit()
+                        saved = await delivery_session.get(AppSetting, pending_setting.key)
+                        if saved is not None:
+                            await deliver(delivery_session, saved, notification_sink)
                 except Exception as exc:
                     logger.warning(
                         "home_assistant_notification_failed",
@@ -298,6 +283,43 @@ def create_app(
         return identity
 
     CurrentIdentity = Annotated[Identity, Depends(get_identity)]
+
+    @application.get("/api/v1/notifications/preferences")
+    async def notification_preferences(
+        identity: CurrentIdentity, session: Session
+    ) -> NotificationPreferences:
+        return await preferences(session)
+
+    @application.get("/api/v1/notifications/devices")
+    async def notification_devices(identity: CurrentIdentity) -> list[str]:
+        if app_settings.simulator_enabled or notification_sink is None:
+            return []
+        try:
+            return await notification_sink.list_notification_devices()
+        except Exception:
+            raise HTTPException(
+                503, "Could not load Home Assistant notification devices. Retry shortly."
+            ) from None
+
+    @application.post("/api/v1/notifications/preferences")
+    async def save_notification_preferences(
+        payload: NotificationPreferences, identity: CurrentIdentity, session: Session
+    ) -> NotificationPreferences:
+        current = await preferences(session)
+        # Retain saved offline devices, but new recipients must be discovered.
+        added = set(payload.devices) - set(current.devices)
+        if added:
+            available = await notification_devices(identity)
+            if not added.issubset(available):
+                raise HTTPException(422, "Choose a registered Home Assistant Companion app device.")
+        async with delivery_lock:
+            saved = await session.get(AppSetting, PREFERENCES_KEY)
+            if saved is None:
+                session.add(AppSetting(key=PREFERENCES_KEY, typed_value=payload.model_dump()))
+            else:
+                saved.typed_value = payload.model_dump()
+            await session.commit()
+        return payload
 
     @application.get("/api/v1/health", response_model=HealthResponse)
     async def health() -> HealthResponse:

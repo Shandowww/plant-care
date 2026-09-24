@@ -16,6 +16,10 @@ class HomeAssistantNotificationSink(Protocol):
 
     async def dismiss_persistent_notification(self, *, notification_id: str) -> None: ...
 
+    async def list_notification_devices(self) -> list[str]: ...
+
+    async def notify_device(self, service: str, payload: dict[str, Any]) -> None: ...
+
 
 RELEVANT_DEVICE_CLASSES = {
     "battery",
@@ -219,6 +223,30 @@ class HomeAssistantClient:
             "create",
             {"notification_id": notification_id, "title": title, "message": message},
         )
+
+    async def list_notification_devices(self) -> list[str]:
+        if not self.token:
+            raise RuntimeError("Home Assistant API token is unavailable")
+        async with httpx2.AsyncClient(
+            base_url="http://supervisor/core/api/",
+            headers={"Authorization": f"Bearer {self.token}"},
+            timeout=10.0,
+        ) as client:
+            response = await client.get("services")
+            response.raise_for_status()
+        return sorted(
+            name
+            for domain in response.json()
+            if domain.get("domain") == "notify"
+            for name in domain.get("services", {})
+            if name.startswith("mobile_app_")
+        )
+
+    async def notify_device(self, service: str, payload: dict[str, Any]) -> None:
+        from .schemas import NotificationPreferences
+
+        NotificationPreferences(devices=[service])
+        await self._call_service("notify", service, payload)
 
     async def dismiss_persistent_notification(self, *, notification_id: str) -> None:
         await self._call_service(
