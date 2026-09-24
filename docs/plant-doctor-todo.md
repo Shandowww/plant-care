@@ -3,18 +3,20 @@
 ## Resume checkpoint
 
 - Owner confirmed Gemini diagnosis worked after v0.11.3. Current requested work:
-  notification device selection (v0.12.0, push authorized). Settings discovers Companion
+  notification device selection (v0.12.0 published, 2c9c6c8). Settings discovers Companion
   app notify services and saves household preferences without restart; the panel
   copy is optional. New notifications.py / NotificationSettings.tsx own routing/UI.
   AppSetting records preserve original recipients and per-device acknowledgements
   across restart; failed recipients retry without resending to successful ones.
   Real push delivery and iPhone plant deep links remain unverified. No real push
-  messages sent locally. Next: publish this release, then owner selects devices
+  messages sent locally. Next: confirm CI, then owner updates and selects devices
   and verifies delivery on Home Assistant. Gemini code is unchanged in this work.
   Verification: 149 backend + 28 frontend tests, Ruff, mypy, ESLint, TypeScript,
   production build and diff checks pass. A 390px isolated simulator preview verified
   saved preferences after reload and readable buttons; real device discovery/delivery
   is covered with mocks only. Release version references synchronized to 0.12.0.
+  CI queued at handoff: https://github.com/Shandowww/plant-care/actions/runs/36002144615
+  Previous v0.11.3 CI completed successfully.
 
 - New timeout follow-up (v0.11.3 published, abb74c9): owner now sees diagnosis deadline
   error. Keep the 50-second ingress-safe deadline; lower default Gemini 3.6 Flash
