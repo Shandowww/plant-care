@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0
+
+- Follow Home Assistant/browser language for the dashboard and Plant Doctor,
+  including Hebrew RTL and localized AI assessments.
+- Shorten the plant-card temperature label to “Temp” so readings stay aligned.
+
+- Refresh the visual design with system typography, clearer cards and hierarchy,
+  larger touch controls, readable status badges, and iPhone-safe dialog spacing.
+- Add immediate per-device System/Light/Dark appearance and guarded pull-down or
+  button refresh that retains usable data on failure. Keep keyboard focus inside
+  dialogs and prevent the background page scrolling while editing.
+
+- Bring active watering instructions directly below the plant name, ahead of its
+  photo and sensor details, with larger text and a prominent watering guide.
+
+- Warn about sensor batteries only below 10%; levels of 10% or higher no longer
+  highlight as low and clear existing battery actions on the next sensor sync.
+
 ## 0.12.0
 
 - Select multiple Home Assistant Companion app devices in PlantCare Settings for

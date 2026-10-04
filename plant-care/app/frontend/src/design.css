@@ -1,0 +1,188 @@
+/* Shared appearance tokens and touch-first hierarchy. Keep botanical artwork unchanged. */
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  color-scheme: light;
+  --canvas: #f2f4f1;
+  --surface: #ffffff;
+  --paper: #ffffff;
+  --ink: #20382c;
+  --muted: #596b61;
+  --line: #dce3dd;
+  --accent: #236347;
+  --green: var(--accent);
+  --glass: rgba(255, 255, 255, 0.93);
+  --shadow: 0 4px 20px rgba(28, 49, 36, 0.04);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #111914;
+  --surface: #202d25;
+  --paper: #1a251e;
+  --ink: #e5eee7;
+  --muted: #b0beb3;
+  --line: #3b4b40;
+  --forest: #28694f;
+  --accent: #a4d8ba;
+  --forest-soft: #283e30;
+  --amber: #edc17a;
+  --amber-soft: #453824;
+  --rose: #f2aaa2;
+  --rose-soft: #462d2b;
+  --blue: #aad1dc;
+  --blue-soft: #293e45;
+  --glass: rgba(26, 37, 30, 0.94);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+}
+body { color: var(--ink); line-height: 1.5; }
+button, input, select, textarea { font-family: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.brand { letter-spacing: -0.5px; }
+.topbar { background: var(--glass); gap: 12px; }
+.topbar__identity { min-width: 0; }
+.topbar h1 { font-size: 22px; }
+.eyebrow { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+.topbar__actions { gap: 10px; flex-shrink: 0; }
+.icon-button, .mobile-menu, .sidebar__close { width: 44px; height: 44px; flex-shrink: 0; }
+.profile-button { min-height: 44px; text-align: start; }
+.profile-button > span:first-child { width: 44px; height: 44px; }
+.profile-button > span:nth-child(2) { font-size: 14px; }
+.content { padding-top: 32px; }
+.intro { gap: 16px; }
+.intro h2 { font-size: 28px; letter-spacing: -0.7px; }
+.intro p { font-size: 14px; line-height: 1.55; }
+.primary-button, .secondary-button, .danger-button,
+.mapping-banner button, .detail-action-row > button, .simulate-button,
+.action-card__controls button, .tip-shuffle, .show-all-tips,
+.doctor-outcome button, .detail-button {
+  min-height: 44px; height: auto; font-size: 14px; border-radius: 12px;
+  padding: 10px 14px; white-space: normal; line-height: 1.35;
+}
+.primary-button { width: auto; font-size: 14px; justify-content: center; }
+.summary-card { min-height: 88px; border-radius: 16px; box-shadow: var(--shadow); text-align: start; }
+.summary-card strong { font-size: 25px; }
+.summary-card small { font-size: 13px; color: var(--muted); }
+.search-field, .select-field { min-height: 46px; height: auto; border-radius: 12px; }
+.search-field { width: min(100%, 380px); }
+.search-field input, .select-field select { font-size: 14px; min-height: 44px; }
+.search-field input { text-align: start; }
+.plant-grid { gap: 20px; }
+.plant-card { border-radius: 20px; box-shadow: var(--shadow); }
+.plant-card__visual::before { opacity: 0.15; }
+.status-pill { color: var(--ink); background: var(--glass); border-color: var(--line); }
+.status-pill--action_needed, .status-pill--watch { color: var(--amber); background: var(--amber-soft); }
+.status-pill--overdue { color: var(--rose); background: var(--rose-soft); }
+.status-pill--sensor_issue { color: var(--blue); background: var(--blue-soft); }
+.plant-card__body { padding: 20px; }
+.plant-card__identity { flex-wrap: wrap; gap: 6px; }
+.plant-card__identity > div { min-width: 0; max-width: 100%; }
+.plant-card__identity h2 { font-size: 18px; line-height: 1.35; }
+.plant-card__identity p { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.location { max-width: 100%; font-size: 12px; }
+.reading { min-height: 58px; padding: 10px 8px; border-radius: 12px; }
+.reading strong { font-size: 16px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.reading span span, .reading > span { font-size: 11px; white-space: normal; }
+.reading-button { text-align: start; }
+.reading-range-note { padding: 12px; border-color: var(--line); border-radius: 12px; }
+.reading-range-note strong { font-size: 14px; }
+.reading-range-note span { font-size: 12px; }
+.next-action { gap: 10px; flex-wrap: wrap; border-radius: 10px; background: var(--amber-soft); }
+.next-action--clear { background: var(--forest-soft); }
+.next-action, .next-action strong { font-size: 13px; }
+.plant-card__footer { gap: 8px; flex-wrap: wrap; }
+.last-reading { color: var(--muted); }
+.settings-card, .diagnostic-card, .action-card { border-radius: 18px; box-shadow: var(--shadow); }
+.settings-card h3, .diagnostic-card h3 { font-size: 18px; }
+.settings-card p, .integration-status small, .switch-row small { font-size: 13px; line-height: 1.6; }
+.integration-status strong, .switch-row strong { font-size: 15px; }
+.action-card__copy h4 { font-size: 17px; }
+.action-card__copy p, .action-card__copy > strong { font-size: 14px; line-height: 1.6; }
+.action-card__controls select { min-height: 44px; background: var(--surface); color: var(--ink); border-color: var(--line); }
+.popover { background: var(--paper); border-color: var(--line); border-radius: 16px; }
+.dialog-backdrop { padding: 20px; background: rgba(7, 18, 12, 0.55); }
+.dialog { border: 1px solid var(--line); border-radius: 24px; max-height: calc(100dvh - 40px); }
+.dialog { overscroll-behavior: contain; }
+.dialog h2 { font-size: 26px; padding-inline-end: 30px; }
+.dialog__close { width: 44px; height: 44px; }
+.popover__head button { width: 44px; height: 44px; }
+.dialog-subtitle { font-size: 14px; line-height: 1.55; }
+.dialog-form input, .dialog-form select, .mapping-form select, .sensor-grid select, .sensor-first-fields input,
+.doctor-symptoms textarea, .login-panel input {
+  font-size: 16px; min-height: 48px; color: var(--ink); background: var(--surface);
+  border-color: var(--line); border-radius: 12px;
+}
+.dialog-form label, .mapping-form label { font-size: 14px; }
+.switch-row { min-height: 48px; gap: 16px; }
+.switch-row input { width: 22px; height: 22px; flex-shrink: 0; }
+.consent-row input { width: 22px; height: 22px; flex-shrink: 0; }
+.settings-card > .secondary-button { margin-inline-end: 8px; margin-top: 12px; }
+.detail-readings > div { border-radius: 14px; }
+.detail-readings strong { font-size: 20px; white-space: normal; overflow-wrap: anywhere; }
+.detail-readings small, .mapping-banner small { font-size: 13px; }
+.mapping-banner strong { font-size: 15px; }
+.mapping-banner { border-color: var(--line); }
+.tip-shuffle, .show-all-tips { background: var(--surface); color: var(--accent); border-color: var(--line); }
+.tip-shuffle:hover { background: var(--paper); }
+.detail-tips { background: var(--forest-soft); border-color: var(--line); }
+.featured-tip, .all-tips article { background: var(--surface); border-color: var(--line); }
+.detail-tips__heading h3, .detail-actions h3 { font-size: 18px; }
+.all-tips p, .featured-tip p, .detail-actions p { font-size: 14px; line-height: 1.6; }
+.detail-actions > div strong { font-size: 15px; }
+.watering-guide__instructions { font-size: 19px; line-height: 1.65; }
+.photo-picker { background: var(--surface); color: var(--ink); border-color: var(--line); min-height: 76px; }
+.doctor-photo-replace { background: var(--glass); }
+.doctor-usage, .doctor-result__identity, .doctor-gardener { border-color: var(--line); }
+.doctor-result .doctor-watering-plan { border-color: var(--line); }
+.doctor-result .doctor-watering-plan section { background: var(--surface); }
+.doctor-result ul { color: var(--ink); padding-inline-start: 22px; }
+.doctor-result .doctor-quote { border-left: 0; border-inline-start: 3px solid var(--accent); padding-inline: 14px 0; }
+.doctor-watering-threshold, .doctor-result__identity { border-left: 0; border-inline-start: 3px solid var(--amber); }
+.toast { max-width: min(460px, calc(100vw - 32px)); bottom: calc(20px + env(safe-area-inset-bottom)); font-size: 14px; }
+.appearance-picker { margin: 0 0 24px; padding: 0; border: 0; }
+.appearance-picker legend { margin-bottom: 10px; font-weight: 600; font-size: 15px; }
+.appearance-picker > div { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; gap: 4px; background: var(--canvas); border-radius: 14px; }
+.appearance-picker label { position: relative; cursor: pointer; }
+.appearance-picker input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.appearance-picker span { display: grid; place-items: center; min-height: 44px; padding: 8px; border-radius: 10px; font-size: 14px; }
+.appearance-picker input:checked + span { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); font-weight: 600; }
+.appearance-picker input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 1px; }
+.pull-refresh { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px; color: var(--accent); font-size: 14px; }
+.refresh-spinning { animation: refresh-spin 1s linear infinite; }
+.login-page { background: radial-gradient(circle at 50% 15%, var(--forest-soft), var(--canvas) 65%); min-height: 100dvh; }
+.login-panel { background: var(--paper); }
+.login-panel form { text-align: start; }
+.login-panel form button { min-height: 48px; font-size: 16px; border-radius: 12px; }
+@keyframes refresh-spin { to { transform: rotate(360deg); } }
+@media (max-width: 760px) {
+  .topbar { height: auto; min-height: 80px; padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); gap: 6px; }
+  .topbar h1 { font-size: 18px; }
+  .topbar__actions { gap: 6px; }
+  .topbar .eyebrow { font-size: 10px; letter-spacing: 0.02em; }
+  .mobile-menu { margin-inline: 0; }
+  .profile-button { min-width: 44px; }
+  .content { padding: 24px max(16px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .intro { align-items: flex-start; }
+  .intro h2 { font-size: 25px; }
+  .sidebar { padding-top: max(30px, env(safe-area-inset-top)); padding-bottom: max(22px, env(safe-area-inset-bottom)); }
+  .summary-grid, .plant-grid { gap: 12px; }
+  .dialog-backdrop { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  .dialog { max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  .dialog .primary-button { font-size: 14px; padding: 10px 14px; }
+  .dialog__footer > button { flex: 1 1 auto; }
+  .action-card__controls { flex-wrap: wrap; }
+}
+@media (max-width: 400px) {
+  .intro { flex-wrap: wrap; }
+  .summary-card { padding: 12px; gap: 10px; }
+  .summary-card small { font-size: 12px; }
+  .dialog { padding: 20px; }
+  .detail-photo:not(.detail-photo--after-care) { margin: -20px -20px 20px; }
+  .doctor-gardener { align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refresh-spinning { animation: none; }
+  .plant-card:hover, .summary-card:hover { transform: none; }
+}

@@ -1,5 +1,14 @@
 # Plant Care Dashboard
 
+## Language
+
+PlantCare supports English and Hebrew on the dashboard and in Plant Doctor. When opened
+through Home Assistant ingress, it follows the language selected for the Home Assistant
+frontend and uses right-to-left layout for Hebrew. If no Home Assistant language is
+available, it falls back to the browser language and then English. A Hebrew Doctor check
+also asks the configured AI provider to return the assessment and care plan in Hebrew;
+the diagnostic photo and result handling are otherwise unchanged.
+
 This experimental release includes the local simulator and the first live Home
 Assistant sensor synchronization milestone. In production, PlantCare reads only
 the entities explicitly mapped to a plant and stores their normalized history in
@@ -300,14 +309,14 @@ Settings → Apps → Plant Care Dashboard → Configuration** using
 changing an app option.
 
 `home_assistant_notifications` is enabled by default. A newly confirmed
-low-moisture condition, prolonged-wet condition, battery below 20%, or
+low-moisture condition, prolonged-wet condition, battery below 10%, or
 non-responsive sensor creates one persistent notification in Home Assistant
 using the Supervisor token already injected into the app; no webhook, long-lived
 access token, or Telegram setup is required. The notification contains a link
 that opens PlantCare directly on the affected plant card. Recovery completes the
 matching monitoring-managed action and dismisses its notification automatically.
-Battery recovery requires at least 25%, providing hysteresis around the warning
-threshold. Delivery can be disabled in the same app configuration screen.
+Battery levels of 10% or higher are normal and clear existing battery alerts on
+the next sensor sync. Delivery can be disabled in the same app configuration screen.
 
 In **PlantCare → Settings → Home Assistant notifications**, select one or more
 phones/tablets and press **Save notification recipients**. Devices are discovered

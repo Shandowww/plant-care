@@ -778,6 +778,7 @@ def create_app(
         session: Session,
         symptoms: Annotated[str, Form(max_length=2000)] = "",
         fallback_consent: Annotated[bool, Form()] = False,
+        language: Annotated[str, Form(pattern="^(en|he)$")] = "en",
     ) -> PlantDoctorResponse:
         if not consent:
             raise HTTPException(
@@ -862,6 +863,7 @@ def create_app(
                         f"Now {datetime.now(UTC).isoformat()}; latest per metric {latest_metrics}"
                     ),
                     drying_context=f"{plant.drying_status or 'unknown'}: {plant.drying_note or ''}",
+                    response_language="he" if language == "he" else "en",
                     moisture=plant.moisture,
                     temperature=plant.temperature,
                     illuminance=plant.illuminance,

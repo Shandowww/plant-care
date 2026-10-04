@@ -12,6 +12,7 @@ import { useState } from "react";
 import type { Plant, PlantState } from "./types";
 import { plantImage } from "./plant-images";
 import { plantStatusLabel } from "./plant-status";
+import { useI18n } from "./i18n";
 
 const stateContent: Record<
   PlantState,
@@ -33,18 +34,21 @@ const visualVariant: Record<string, string> = {
   "Peace Lily": "flower",
 };
 
-function timeAgo(value: string | null): string {
-  if (!value) return "No valid reading";
+function timeAgo(value: string | null, t: ReturnType<typeof useI18n>["t"]): string {
+  if (!value) return t("time.noReading", "No valid reading");
   const minutes = Math.max(
     0,
     Math.round((Date.now() - new Date(value).getTime()) / 60_000),
   );
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return t("time.minutesAgo", "{{count}}m ago", { count: minutes });
   const hours = Math.round(minutes / 60);
-  return hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+  return hours < 48
+    ? t("time.hoursAgo", "{{count}}h ago", { count: hours })
+    : t("time.daysAgo", "{{count}}d ago", { count: Math.round(hours / 24) });
 }
 
 function BotanicalVisual({ plant }: { plant: Plant }) {
+  const { t } = useI18n();
   const image = plantImage(plant);
   if (image) {
     return (
@@ -62,7 +66,7 @@ function BotanicalVisual({ plant }: { plant: Plant }) {
     <div
       className={`botanical botanical--${variant}`}
       role="img"
-      aria-label={`${plant.common_name} reference placeholder`}
+      aria-label={t("plant.reference", "{{name}} reference placeholder", { name: plant.common_name })}
     >
       <span className="leaf leaf--one" />
       <span className="leaf leaf--two" />
@@ -81,6 +85,7 @@ export function PlantCard({
   plant: Plant;
   onDetails: (plant: Plant) => void;
 }) {
+  const { locale, t } = useI18n();
   const state = stateContent[plant.state];
   const StateIcon = state.icon;
   const [temperatureOpen, setTemperatureOpen] = useState(false);
@@ -97,7 +102,7 @@ export function PlantCard({
         <BotanicalVisual plant={plant} />
         <span className={`status-pill status-pill--${plant.drying_status === "wet_watch" ? "watch" : plant.state}`}>
           <StateIcon size={14} strokeWidth={2.4} aria-hidden="true" />
-          {plantStatusLabel(plant)}
+          {plantStatusLabel(plant, locale)}
         </span>
       </div>
       <div className="plant-card__body">
@@ -105,7 +110,7 @@ export function PlantCard({
         <div className="plant-card__identity">
           <div>
             <h2 id={`plant-${plant.id}`}>{plant.display_name}</h2>
-            <p>{plant.scientific_name ?? "Species not confirmed"}</p>
+            <p>{plant.scientific_name ?? t("plant.speciesUnknown", "Species not confirmed")}</p>
           </div>
           <span className="location">
             <MapPin size={13} aria-hidden="true" />
@@ -114,11 +119,13 @@ export function PlantCard({
           </span>
         </div>
 
-        <div className="readings" aria-label="Latest readings">
+        <div className="readings" aria-label={t("plant.latestReadings", "Latest readings")}>
           <button
             className={`reading reading-button reading--${plant.moisture_status}`}
             type="button"
-            aria-label={`Moisture ${plant.moisture === null ? "unavailable" : `${plant.moisture} percent`}; show monitoring thresholds`}
+            aria-label={t("plant.moistureA11y", "Moisture {{value}}; show monitoring thresholds", {
+              value: plant.moisture === null ? t("plant.unavailable", "unavailable") : `${plant.moisture} percent`,
+            })}
             aria-expanded={moistureOpen}
             aria-controls={moistureRangeId}
             onClick={(event) => {
@@ -131,13 +138,15 @@ export function PlantCard({
               <strong>
                 {plant.moisture === null ? "—" : `${plant.moisture}%`}
               </strong>
-              Moisture
+              {t("plant.moisture", "Moisture")}
             </span>
           </button>
           <button
             className={`reading reading-button reading--${plant.temperature_status}`}
             type="button"
-            aria-label={`Temperature ${plant.temperature === null ? "unavailable" : `${plant.temperature.toFixed(1)} degrees Celsius`}; show normal range`}
+            aria-label={t("plant.temperatureA11y", "Temperature {{value}}; show normal range", {
+              value: plant.temperature === null ? t("plant.unavailable", "unavailable") : `${plant.temperature.toFixed(1)} degrees Celsius`,
+            })}
             aria-expanded={temperatureOpen}
             aria-controls={temperatureRangeId}
             onClick={(event) => {
@@ -152,18 +161,18 @@ export function PlantCard({
                   ? "—"
                   : `${plant.temperature.toFixed(1)}°`}
               </strong>
-              Local temp
+              {t("plant.temp", "Temp")}
             </span>
           </button>
           <div
-            className={`reading ${plant.battery !== null && plant.battery < 20 ? "reading--low" : ""}`}
+            className={`reading ${plant.battery !== null && plant.battery < 10 ? "reading--low" : ""}`}
           >
             <BatteryMedium size={17} aria-hidden="true" />
             <span>
               <strong>
                 {plant.battery === null ? "—" : `${plant.battery}%`}
               </strong>
-              Battery
+              {t("plant.battery", "Battery")}
             </span>
           </div>
           {moistureOpen && (
@@ -174,13 +183,16 @@ export function PlantCard({
               onClick={(event) => event.stopPropagation()}
             >
               <strong>
-                Watering check at or below {plant.moisture_check_threshold}%
+                {t("plant.wateringThreshold", "Watering check at or below {{value}}%", { value: plant.moisture_check_threshold })}
               </strong>
               <span>
-                Wet tracking at or above {plant.moisture_wet_threshold}%.
-                Alerts use drying history or your custom duration. {plant.care_profile_basis}
-                {plant.moisture_thresholds_custom ? " · custom thresholds" : " · starting profile"}.
-                Calibrate thresholds for your sensor, substrate, and placement.
+                {t("plant.wetThreshold", "Wet tracking at or above {{value}}%. Alerts use drying history or your custom duration. {{basis}}{{profile}}. Calibrate thresholds for your sensor, substrate, and placement.", {
+                  value: plant.moisture_wet_threshold,
+                  basis: plant.care_profile_basis,
+                  profile: plant.moisture_thresholds_custom
+                    ? t("plant.customThresholds", " · custom thresholds")
+                    : t("plant.startingProfile", " · starting profile"),
+                })}
               </span>
             </div>
           )}
@@ -192,12 +204,13 @@ export function PlantCard({
               onClick={(event) => event.stopPropagation()}
             >
               <strong>
-                Normal temperature range: {plant.temperature_minimum}–
-                {plant.temperature_maximum}°C
+                {t("plant.temperatureRange", "Normal temperature range: {{min}}–{{max}}°C", {
+                  min: plant.temperature_minimum,
+                  max: plant.temperature_maximum,
+                })}
               </strong>
               <span>
-                {plant.care_profile_basis}. Guidance only; temperature alerts are
-                not automated yet.
+                {t("plant.temperatureGuidance", "{{basis}}. Guidance only; temperature alerts are not automated yet.", { basis: plant.care_profile_basis })}
               </span>
             </div>
           )}
@@ -205,32 +218,32 @@ export function PlantCard({
 
         {plant.highest_priority_action ? (
           <div className="next-action">
-            <span>Next action</span>
+            <span>{t("plant.nextAction", "Next action")}</span>
             <strong>{plant.highest_priority_action}</strong>
           </div>
         ) : (
           <div className="next-action next-action--clear">
-            <span>Care queue</span>
-            <strong>No action needed</strong>
+            <span>{t("plant.careQueue", "Care queue")}</span>
+            <strong>{t("plant.noAction", "No action needed")}</strong>
           </div>
         )}
 
         <div className="plant-card__footer">
           <span className="last-reading">
             <Clock3 size={13} aria-hidden="true" />
-            {timeAgo(plant.last_reading_at)}
+            {timeAgo(plant.last_reading_at, t)}
           </span>
           <div className="card-actions">
             <button
               className="detail-button"
               type="button"
-              aria-label={`Open ${plant.display_name} details`}
+              aria-label={t("plant.openDetails", "Open {{name}} details", { name: plant.display_name })}
               onClick={(event) => {
                 event.stopPropagation();
                 onDetails(plant);
               }}
             >
-              Details <ChevronRight size={16} aria-hidden="true" />
+              {t("plant.details", "Details")} <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>
         </div>

@@ -62,6 +62,7 @@ def request_diagnosis(
     consent: bool = True,
     symptoms: str = "",
     fallback_consent: bool = False,
+    language: str = "en",
 ):
     return client.post(
         f"/api/v1/plants/{plant_id}/doctor",
@@ -69,6 +70,7 @@ def request_diagnosis(
             "consent": str(consent).lower(),
             "symptoms": symptoms,
             "fallback_consent": str(fallback_consent).lower(),
+            "language": language,
         },
         files={"photo": ("diagnostic.jpg", photo, "image/jpeg")},
     )
@@ -92,7 +94,7 @@ def test_health_reports_simulator(development_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ready",
-        "version": "0.12.0",
+        "version": "0.13.0",
         "database": "ready",
         "simulator": True,
         "plant_doctor_configured": False,
@@ -126,6 +128,22 @@ def test_doctor_fallback_needs_request_consent(tmp_path, monkeypatch, fallback_c
             assert result.json()["fallback_used"] is True
             history = client.get(f"/api/v1/plants/{plant['id']}/doctor/history").json()
             assert history["visits"][0]["fallback_used"] is True
+
+
+def test_doctor_passes_requested_hebrew_language_to_provider(tmp_path):
+    doctor = StubPlantDoctor()
+    settings = Settings(
+        environment="test",
+        auth_mode="disabled",
+        data_dir=tmp_path,
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'hebrew.db'}",
+    )
+    with TestClient(create_app(settings, plant_doctor_client=doctor)) as client:
+        plant = client.get("/api/v1/plants").json()["plants"][0]
+        response = request_diagnosis(client, plant["id"], diagnostic_photo(), language="he")
+
+    assert response.status_code == 200
+    assert doctor.calls[0][1].response_language == "he"
 
 
 @pytest.mark.parametrize("identity", ["uncertain", "mismatch"])

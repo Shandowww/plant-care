@@ -2,6 +2,51 @@
 
 ## Resume checkpoint
 
+- Release 0.13.0 packages the design/appearance/refresh changes, shorter Temp
+  label, battery threshold and pending English/Hebrew localization described below.
+  Version references are synchronized. Local verification: 156 backend + 42
+  frontend tests, Ruff, mypy, frontend lint/typecheck/build and diff check pass.
+  Earlier local/unreleased notes below are historical; use Git main/origin and CI
+  for publication status. Actual Pi installation and real iPhone QA remain owner
+  steps. Unrelated project folders and repository-layout moves are not included.
+
+- Visual modernization (local/unreleased): shared appearance tokens, system
+  typography, larger touch controls/readings, clearer cards/statuses and dialog
+  hierarchy. New appearance.ts / design.css provide per-device System/Light/Dark
+  with immediate application and live system changes. Top-bar refresh and guarded
+  pull-down refresh fetch current saved data atomically, preserve data on failure,
+  and ignore controls/dialogs/settings edits. Dialogs lock background scrolling,
+  trap keyboard focus and restore it on close. 156 backend + 42 frontend tests,
+  frontend lint/typecheck/build and diff check pass. Safari visual review completed
+  for desktop dark dashboard/watering details and 390px dark dashboard plus light
+  settings, care queue and add-plant form; no real iPhone/HA WebView testing or live
+  AI request. No release bump, commit or push yet. Preserve pre-existing edits.
+
+- Additional requested changes (local/unreleased): battery alerts/highlighting now
+  start below 10% and recover at 10% or higher. Active low-moisture actions now show
+  a prominent watering guide immediately below the plant name, before the photo,
+  mapping, readings and tips; instructions use 18px type with a centered heading.
+  Recommendations render once and completed actions hide the guide. Hebrew heading
+  added to the ongoing localization work. 156 backend and 36 frontend tests pass;
+  frontend lint/type checks/build and diff check pass. Browser visual QA was attempted
+  but no browser is available in this session. Changes are not committed/pushed;
+  preserve the existing localization and repository-layout edits during release.
+
+- Current localization work (unreleased): Hebrew is now available for the dashboard and
+  Plant Doctor. The frontend follows the effective language on the same-origin Home
+  Assistant parent page, then HA's `selectedLanguage` browser preference, then the browser
+  locale, with English as the fallback. Hebrew enables RTL layout and localized dates,
+  dashboard controls/statuses, plant cards, and the complete Doctor workflow. Doctor
+  uploads include only the normalized `en`/`he` language code; both providers are instructed
+  to keep JSON keys/enums stable while returning human-readable assessment fields in the
+  selected language. Server-generated assessment fallbacks and disclaimer are localized.
+  Verification: 151 backend tests and 29 frontend tests pass, along with Ruff, mypy,
+  ESLint, TypeScript, production build, and diff checks. No live AI call or real HA mobile
+  WebView QA was performed. Next: visually verify Hebrew/RTL in the real HA app and run one
+  authorized Hebrew Doctor assessment before release. Settings, Help, the care queue,
+  plant editing forms, botanical tip text, and backend-originated action text remain English
+  outside the requested dashboard/Doctor scope.
+
 - Owner confirmed Gemini diagnosis worked after v0.11.3. Current requested work:
   notification device selection (v0.12.0 published, 2c9c6c8). Settings discovers Companion
   app notify services and saves household preferences without restart; the panel

@@ -12,6 +12,7 @@ from plantcare.plant_doctor import (
     PlantDoctorContext,
     PlantDoctorHistoryContext,
     PlantDoctorProviderError,
+    _prompt,
     summarize_moisture_history,
 )
 
@@ -56,6 +57,15 @@ def test_care_profiles_are_species_specific_and_fallback_transparently() -> None
     ) == (30, 65)
     assert "orchid fallback" in orchid.basis
     assert "species not confirmed" in unknown.basis
+
+
+def test_doctor_prompt_requests_hebrew_without_translating_json_contract() -> None:
+    hebrew_context = PlantDoctorContext(**{**context().__dict__, "response_language": "he"})
+
+    prompt = _prompt(hebrew_context)
+
+    assert "human-readable response value in Hebrew" in prompt
+    assert "Keep JSON keys and enum values exactly as specified" in prompt
 
 
 @pytest.mark.asyncio

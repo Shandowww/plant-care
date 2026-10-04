@@ -661,7 +661,7 @@ def test_prolonged_wet_readings_create_drying_action(tmp_path: Path) -> None:
         assert completed["completed_by"] == "Automatic moisture recovery"
 
 
-def test_low_battery_creates_action_and_recovers_with_hysteresis(tmp_path: Path) -> None:
+def test_low_battery_creates_action_and_recovers_at_ten_percent(tmp_path: Path) -> None:
     source = FakeHomeAssistant()
     notifier = FakeHomeAssistantNotifier()
     now = datetime.now(UTC)
@@ -690,7 +690,7 @@ def test_low_battery_creates_action_and_recovers_with_hysteresis(tmp_path: Path)
         recovered_at = now + timedelta(minutes=5)
         source.entities[2] = source.entities[2].model_copy(
             update={
-                "state": "25",
+                "state": "10",
                 "last_changed": recovered_at,
                 "last_updated": recovered_at,
             }
@@ -699,6 +699,30 @@ def test_low_battery_creates_action_and_recovers_with_hysteresis(tmp_path: Path)
         completed = client.get("/api/v1/actions").json()["actions"][0]
         assert completed["status"] == "completed"
         assert completed["completed_by"] == "Automatic battery recovery"
+        assert notifier.dismissed == [notifier.created[0]["notification_id"]]
+
+
+@pytest.mark.parametrize("battery", ["10", "15", "19", "20", "100"])
+def test_normal_battery_does_not_create_replacement_action(tmp_path: Path, battery: str) -> None:
+    source = FakeHomeAssistant()
+    notifier = FakeHomeAssistantNotifier()
+    source.entities[2] = source.entities[2].model_copy(update={"state": battery})
+    with production_client(tmp_path, source, notifier) as client:
+        client.post(
+            "/api/v1/plants",
+            json={
+                "display_name": "Fern",
+                "location": "Office",
+                "common_name": "Fern",
+                "environment_type": "indoor",
+                "entity_mapping": {"battery_entity_id": "sensor.fern_battery"},
+            },
+        )
+        client.post("/api/v1/home-assistant/sync")
+        assert not any(
+            a["type"] == "low_battery" for a in client.get("/api/v1/actions").json()["actions"]
+        )
+        assert notifier.created == []
 
 
 async def test_home_assistant_metadata_includes_all_areas() -> None:

@@ -132,13 +132,14 @@ export async function deletePlantPhoto(plantId: string): Promise<void> {
 }
 
 export async function diagnosePlant(
-  plantId: string, photo: File, symptoms = "", fallbackConsent = false,
+  plantId: string, photo: File, symptoms = "", fallbackConsent = false, language: "en" | "he" = "en",
 ): Promise<PlantDoctorResponse> {
   const body = new FormData();
   body.append("consent", "true");
   body.append("photo", photo);
   body.append("symptoms", symptoms);
   body.append("fallback_consent", String(fallbackConsent));
+  body.append("language", language);
   const csrf = csrfToken();
   const response = await fetch(ingressRelative(`/api/v1/plants/${plantId}/doctor`), {
     method: "POST",

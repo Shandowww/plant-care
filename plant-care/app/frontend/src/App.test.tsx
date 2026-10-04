@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { I18nProvider } from "./i18n";
 import type { Plant } from "./types";
 
 const plant: Plant = {
@@ -342,7 +343,7 @@ function mockApi(
         return new Response(
           JSON.stringify({
             status: "ready",
-            version: "0.12.0",
+            version: "0.13.0",
             database: "ready",
             simulator,
             plant_doctor_configured: true,
@@ -366,6 +367,82 @@ function chooseDiagnosticPhoto() {
 }
 
 describe("portal", () => {
+  it("keeps keyboard focus and scrolling inside plant details, then restores both", async () => {
+    mockApi();
+    render(<App />);
+    const opener = await screen.findByRole("button", { name: "Open Golden Pothos details" });
+    opener.focus();
+    fireEvent.click(opener);
+    const close = screen.getByRole("button", { name: "Close plant details" });
+    expect(close).toHaveFocus();
+    expect(document.body.style.overflow).toBe("hidden");
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "Done" })).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    expect(document.body.style.overflow).toBe("");
+  });
+  it("applies appearance immediately from Settings", async () => {
+    mockApi();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Dark" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("plantcare.appearance")).toBe("dark");
+  });
+  it("preserves the last usable data when refresh fails", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    await screen.findByRole("button", { name: "Open Golden Pothos details" });
+    fetchMock.mockRejectedValueOnce(new Error("Offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh data" }));
+    await screen.findByText(/Refresh failed/);
+    expect(screen.getByRole("button", { name: "Open Golden Pothos details" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh data" }));
+    await screen.findByText("Data refreshed.");
+  });
+  it("refreshes only for a vertical pull at the top, not controls or horizontal swipes", async () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    await screen.findByRole("button", { name: "Open Golden Pothos details" });
+    const main = screen.getByRole("main");
+    const initial = fetchMock.mock.calls.length;
+    fireEvent.touchStart(main, { touches: [{ clientX: 30, clientY: 30 }] });
+    fireEvent.touchMove(main, { touches: [{ clientX: 120, clientY: 140 }] });
+    fireEvent.touchEnd(main);
+    const control = screen.getByRole("button", { name: "Refresh data" });
+    fireEvent.touchStart(control, { touches: [{ clientX: 30, clientY: 30 }] });
+    fireEvent.touchMove(control, { touches: [{ clientX: 30, clientY: 140 }] });
+    fireEvent.touchEnd(control);
+    expect(fetchMock.mock.calls).toHaveLength(initial);
+    fireEvent.touchStart(main, { touches: [{ clientX: 30, clientY: 30 }] });
+    fireEvent.touchMove(main, { touches: [{ clientX: 30, clientY: 140 }] });
+    fireEvent.touchEnd(main);
+    await screen.findByText("Data refreshed.");
+    expect(fetchMock.mock.calls.length).toBe(initial + 4);
+  });
+  it.each(["open", "completed"])("features watering guidance while the action is %s", async (status) => {
+    const recommendation = "Water the mix evenly, let excess drain, and empty the saucer.";
+    mockApi({ ...action, type: "low_moisture", status, recommendation });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Golden Pothos details" }));
+    const guide = screen.queryByRole("region", { name: "How to water this plant" });
+    if (status === "open") {
+      expect(guide).toHaveTextContent(recommendation);
+      expect(guide).toHaveTextContent("Simulate confirmed watering");
+    } else {
+      expect(guide).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Simulate confirmed watering" })).not.toBeInTheDocument();
+    }
+  });
+  it.each([0, 9, 10, 19, 20])("highlights battery only below 10 percent (%s)", async (battery) => {
+    mockApi(action, { ...plant, battery });
+    render(<App />);
+    const reading = (await screen.findByText(`${battery}%`)).closest(".reading");
+    if (battery < 10) expect(reading).toHaveClass("reading--low");
+    else expect(reading).not.toHaveClass("reading--low");
+  });
   it("selects multiple notification devices and disables the panel copy", async () => {
     const fetchMock = mockApi();
     render(<App />);
@@ -383,6 +460,39 @@ describe("portal", () => {
     cleanup();
     vi.restoreAllMocks();
     window.location.hash = "";
+    window.localStorage.removeItem("selectedLanguage");
+    window.localStorage.removeItem("plantcare.appearance");
+    document.documentElement.lang = "en";
+    document.documentElement.dir = "ltr";
+  });
+
+  it("uses the Home Assistant language for the dashboard and Doctor request", async () => {
+    window.localStorage.setItem("selectedLanguage", JSON.stringify("he"));
+    const fetchMock = mockApi();
+    render(<I18nProvider><App /></I18nProvider>);
+
+    expect(await screen.findByRole("link", { name: "לוח הבקרה" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /סקירת הצמחים שלך/ })).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("lang", "he");
+    expect(document.documentElement).toHaveAttribute("dir", "rtl");
+
+    fireEvent.click(screen.getByRole("button", { name: "פתיחת הפרטים של Golden Pothos" }));
+    fireEvent.click(screen.getByRole("button", { name: "רופא הצמחים" }));
+    expect(screen.getByRole("dialog", { name: "בדיקת Golden Pothos" })).toBeInTheDocument();
+    await screen.findByText("0 בדיקות הושלמו מאז 00:00 UTC");
+    const photo = new File(["photo"], "plant.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText(/צילום או בחירת תמונה/), {
+      target: { files: [photo] },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /אני מסכים/ }));
+    fireEvent.click(screen.getByRole("button", { name: "שליחה לאבחון" }));
+    await screen.findByText("The leaves look generally healthy.");
+
+    const request = fetchMock.mock.calls.find(([url, init]) =>
+      String(url).endsWith("/doctor") && init?.method === "POST");
+    const body = request?.[1]?.body as FormData;
+    expect(body.get("language")).toBe("he");
+    expect(screen.getByText("תוכנית השקיה")).toBeInTheDocument();
   });
 
   it("renders simulator plant status without relying on colour alone", async () => {

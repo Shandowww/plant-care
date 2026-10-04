@@ -9,6 +9,7 @@ import {
   CircleHelp,
   ClipboardCheck,
   Clock3,
+  Droplets,
   Grid2X2,
   Leaf,
   ImagePlus,
@@ -54,6 +55,8 @@ import {
 import { PlantCard } from "./components";
 import { plantImage, plantPhotoUrl } from "./plant-images";
 import { plantTipCollection } from "./plant-tips";
+import { useI18n } from "./i18n";
+import { useAppearance, type Appearance } from "./appearance";
 import type {
   ActionHistoryEvent,
   CareAction,
@@ -90,14 +93,6 @@ const autoManagedActionTypes = new Set([
   "sensor_issue",
 ]);
 
-const viewTitles: Record<View, string> = {
-  dashboard: "Your plant overview",
-  actions: "Care queue",
-  plants: "All plants",
-  settings: "Settings",
-  help: "Help & diagnostics",
-};
-
 function viewFromHash(): View {
   const value = window.location.hash.slice(1).split("/", 1)[0];
   return value === "actions" ||
@@ -129,6 +124,8 @@ function LoadingGrid() {
 }
 
 function App() {
+  const { locale, t } = useI18n();
+  const [appearance, setAppearance] = useAppearance();
   const [data, setData] = useState<PlantResponse | null>(null);
   const [actions, setActions] = useState<CareAction[]>([]);
   const [actionHistory, setActionHistory] = useState<ActionHistoryEvent[]>([]);
@@ -155,7 +152,69 @@ function App() {
   const [compactCards, setCompactCards] = useState(false);
   const [savingAction, setSavingAction] = useState<string | null>(null);
   const [snoozeHours, setSnoozeHours] = useState<Record<string, number>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const refreshLock = useRef(false);
+  const pullStart = useRef<{ x: number; y: number } | null>(null);
+  const dialogOpen = Boolean(selectedPlant || doctorPlant || addPlantOpen || editingPlant || mappingPlant);
+  const dialogKey = selectedPlant ? `detail-${selectedPlant.id}` : doctorPlant ? `doctor-${doctorPlant.id}` :
+    editingPlant ? `edit-${editingPlant.id}` : mappingPlant ? `mapping-${mappingPlant.id}` : addPlantOpen ? "add" : "";
   const selectedPlantId = selectedPlant?.id;
+
+  useEffect(() => {
+    if (!dialogKey) return;
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dialog = document.querySelector<HTMLElement>("[role='dialog']");
+    dialog?.querySelector<HTMLButtonElement>(".dialog__close")?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (!dialog) return;
+      if (event.key === "Escape" && dialogKey.startsWith("detail-")) {
+        dialog.querySelector<HTMLButtonElement>(".dialog__close:not(:disabled)")?.click();
+      }
+      if (event.key !== "Tab") return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), a[href], input:not(:disabled):not([type='hidden']), select:not(:disabled), textarea:not(:disabled), [tabindex='0']",
+      ));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (!first || !last) return;
+      if (!dialog.contains(document.activeElement) || (event.shiftKey && document.activeElement === first) ||
+        (!event.shiftKey && document.activeElement === last)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
+    };
+    document.addEventListener("keydown", trap);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", trap);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [dialogKey]);
+
+  async function refreshDashboard() {
+    if (refreshLock.current || dialogOpen) return;
+    refreshLock.current = true;
+    setRefreshing(true);
+    try {
+      const [nextData, nextActions, nextHistory, nextHealth] = await Promise.all([
+        getPlants(), getActions(), getActionHistory(), getHealth(),
+      ]);
+      setData(nextData);
+      setActions(nextActions.actions);
+      setActionHistory(nextHistory.events);
+      setHealth(nextHealth);
+      setError(null);
+      setActionError(null);
+      setToast(t("refresh.success", "Data refreshed."));
+    } catch {
+      setToast(t("refresh.failed", "Refresh failed. Your last data is still available; please retry."));
+    } finally {
+      refreshLock.current = false;
+      setRefreshing(false);
+    }
+  }
 
   async function refreshPlants() {
     const response = await getPlants();
@@ -264,7 +323,7 @@ function App() {
   }, [toast]);
 
   const plants = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("en-IL");
+    const normalizedQuery = query.trim().toLocaleLowerCase(locale === "he" ? "he-IL" : "en-IL");
     const result = (data?.plants ?? []).filter((plant) => {
       const statusMatches =
         statusFilter === "all" || plant.state === statusFilter;
@@ -277,13 +336,13 @@ function App() {
           plant.common_name,
           plant.scientific_name ?? "",
         ].some((value) =>
-          value.toLocaleLowerCase("en-IL").includes(normalizedQuery),
+          value.toLocaleLowerCase(locale === "he" ? "he-IL" : "en-IL").includes(normalizedQuery),
         );
       return statusMatches && queryMatches;
     });
     return result.sort((left: Plant, right: Plant) => {
       if (sort === "name")
-        return left.display_name.localeCompare(right.display_name, "en-IL");
+        return left.display_name.localeCompare(right.display_name, locale === "he" ? "he-IL" : "en-IL");
       if (sort === "moisture")
         return (left.moisture ?? -1) - (right.moisture ?? -1);
       if (sort === "temperature")
@@ -295,7 +354,7 @@ function App() {
         );
       return urgencyOrder[left.state] - urgencyOrder[right.state];
     });
-  }, [data, query, sort, statusFilter]);
+  }, [data, locale, query, sort, statusFilter]);
 
   const attentionPlants = useMemo(
     () =>
@@ -317,7 +376,7 @@ function App() {
   const activeActions = actions.filter(
     (action) => action.status !== "completed",
   );
-  const currentDate = new Intl.DateTimeFormat("en-GB", {
+  const currentDate = new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -499,8 +558,9 @@ function App() {
   return (
     <div className={`app-shell ${compactCards ? "compact-mode" : ""}`}>
       <aside
+        inert={dialogOpen}
         className={`sidebar ${mobileNavOpen ? "sidebar--open" : ""}`}
-        aria-label="Primary navigation"
+      aria-label={t("a11y.primaryNav", "Primary navigation")}
       >
         <div className="brand">
           <span className="brand__mark">
@@ -514,7 +574,7 @@ function App() {
           className="sidebar__close"
           type="button"
           onClick={() => setMobileNavOpen(false)}
-          aria-label="Close navigation"
+          aria-label={t("a11y.closeNav", "Close navigation")}
         >
           <X />
         </button>
@@ -523,26 +583,26 @@ function App() {
             view="dashboard"
             current={view}
             icon={<Grid2X2 size={19} />}
-            label="Dashboard"
+            label={t("nav.dashboard", "Dashboard")}
           />
           <NavLink
             view="actions"
             current={view}
             icon={<ClipboardCheck size={19} />}
-            label="Care queue"
+            label={t("nav.actions", "Care queue")}
             badge={activeActions.length}
           />
           <NavLink
             view="plants"
             current={view}
             icon={<Leaf size={19} />}
-            label="All plants"
+            label={t("nav.plants", "All plants")}
           />
           <NavLink
             view="settings"
             current={view}
             icon={<Settings size={19} />}
-            label="Settings"
+            label={t("nav.settings", "Settings")}
           />
         </nav>
         <div className="sidebar__status">
@@ -550,19 +610,21 @@ function App() {
           <div>
             <strong>
               {error
-                ? "Dashboard disconnected"
+                ? t("connection.disconnected", "Dashboard disconnected")
                 : health === null
-                  ? "Connecting…"
+                  ? t("connection.connecting", "Connecting…")
                   : health.simulator
-                    ? "Simulator connected"
-                    : "Home Assistant connected"}
+                    ? t("connection.simulator", "Simulator connected")
+                    : t("connection.ha", "Home Assistant connected")}
             </strong>
             <span>
               {error
-                ? "API unavailable"
+                ? t("connection.unavailable", "API unavailable")
                 : health === null
-                  ? "Waiting for API"
-                  : `${counts.total || 0} ${health.simulator ? "plant scenarios" : "mapped plants"}`}
+                  ? t("connection.waiting", "Waiting for API")
+                  : health.simulator
+                    ? t("connection.scenarios", "{{count}} plant scenarios", { count: counts.total || 0 })
+                    : t("connection.plants", "{{count}} mapped plants", { count: counts.total || 0 })}
             </span>
           </div>
         </div>
@@ -570,7 +632,7 @@ function App() {
           view="help"
           current={view}
           icon={<CircleHelp size={19} />}
-          label="Help & diagnostics"
+          label={t("nav.help", "Help & diagnostics")}
           help
         />
       </aside>
@@ -579,34 +641,80 @@ function App() {
         <button
           className="nav-scrim"
           type="button"
-          aria-label="Close navigation"
+          aria-label={t("a11y.closeNav", "Close navigation")}
           onClick={() => setMobileNavOpen(false)}
         />
       )}
 
-      <main>
+      <main
+        inert={dialogOpen}
+        onTouchStart={(event) => {
+          pullStart.current = null;
+          setPullDistance(0);
+          const target = event.target;
+          const touch = event.touches[0];
+          if (dialogOpen || mobileNavOpen || view === "settings" || refreshing || window.scrollY > 0 ||
+            event.touches.length !== 1 || !touch || !(target instanceof Element) ||
+            target.closest("button, a, input, select, textarea, label, [role='dialog']")) return;
+          pullStart.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchMove={(event) => {
+          const touch = event.touches[0];
+          if (!pullStart.current) return;
+          if (event.touches.length !== 1 || !touch) {
+            pullStart.current = null; setPullDistance(0); return;
+          }
+          const dx = Math.abs(touch.clientX - pullStart.current.x);
+          const dy = touch.clientY - pullStart.current.y;
+          if (dx > 20 || dy < 0) { pullStart.current = null; setPullDistance(0); return; }
+          setPullDistance(Math.min(100, dy));
+        }}
+        onTouchEnd={() => {
+          if (pullStart.current && pullDistance >= 80) void refreshDashboard();
+          pullStart.current = null;
+          setPullDistance(0);
+        }}
+        onTouchCancel={() => { pullStart.current = null; setPullDistance(0); }}
+      >
+        {pullDistance > 20 && <div className="pull-refresh" role="status">
+          <RefreshCw size={16} />
+          {pullDistance >= 80 ? t("refresh.release", "Release to refresh") : t("refresh.pull", "Pull to refresh")}
+        </div>}
         <header className="topbar">
           <button
             className="mobile-menu"
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t("a11y.openNav", "Open navigation")}
           >
             <Menu />
           </button>
           <div className="topbar__identity">
             <span className="eyebrow">{currentDate}</span>
             <h1>
-              {viewTitles[view]}{" "}
+              {{
+                dashboard: t("view.dashboard", "Your plant overview"),
+                actions: t("view.actions", "Care queue"),
+                plants: t("view.plants", "All plants"),
+                settings: t("view.settings", "Settings"),
+                help: t("view.help", "Help & diagnostics"),
+              }[view]}{" "}
               {view === "dashboard" && <span aria-hidden="true">☀</span>}
             </h1>
           </div>
           <div className="topbar__actions">
+            <button className="icon-button refresh-button" type="button"
+              aria-label={t("refresh.label", "Refresh data")}
+              title={t("refresh.label", "Refresh data")}
+              disabled={refreshing || dialogOpen} aria-busy={refreshing}
+              onClick={() => void refreshDashboard()}>
+              <RefreshCw size={19} className={refreshing ? "refresh-spinning" : undefined} />
+            </button>
             <div className="menu-anchor">
               <button
                 className="icon-button notification-button"
                 type="button"
-                aria-label="Notifications"
+                aria-label={t("a11y.notifications", "Notifications")}
                 aria-expanded={openMenu === "notifications"}
                 onClick={() =>
                   setOpenMenu(
@@ -628,6 +736,7 @@ function App() {
               <button
                 className="profile-button"
                 type="button"
+                aria-label={t("profile.user", "Home Assistant user")}
                 aria-expanded={openMenu === "profile"}
                 onClick={() =>
                   setOpenMenu(openMenu === "profile" ? null : "profile")
@@ -635,7 +744,7 @@ function App() {
               >
                 <span>HA</span>
                 <span>
-                  Home Assistant user<small>Authenticated household</small>
+                  {t("profile.user", "Home Assistant user")}<small>{t("profile.household", "Authenticated household")}</small>
                 </span>
                 <ChevronDown size={15} />
               </button>
@@ -677,6 +786,8 @@ function App() {
           />
         ) : view === "settings" ? (
           <SettingsView
+            appearance={appearance}
+            onAppearance={setAppearance}
             health={health}
             compactCards={compactCards}
             onCompactCards={setCompactCards}
@@ -807,6 +918,7 @@ function PlantCollection({
   onAdd: () => void;
   onDetails: (plant: Plant) => void;
 }) {
+  const { t } = useI18n();
   function openCollection(filter: PlantState | "all") {
     onQuery("");
     onStatus(filter);
@@ -817,26 +929,26 @@ function PlantCollection({
     <div className="content" id={dashboard ? "dashboard" : "plants"}>
       <section className="intro">
         <div>
-          <h2>{dashboard ? "Needs attention" : "Plant collection"}</h2>
+          <h2>{dashboard ? t("dashboard.attention", "Needs attention") : t("dashboard.collection", "Plant collection")}</h2>
           <p>
             {dashboard
-              ? "A focused overview of plants that need care, watching, or a sensor fix."
-              : "Your full inventory: search, add, edit, inspect, or archive every plant."}
+              ? t("dashboard.attentionHelp", "A focused overview of plants that need care, watching, or a sensor fix.")
+              : t("dashboard.collectionHelp", "Your full inventory: search, add, edit, inspect, or archive every plant.")}
           </p>
         </div>
         {dashboard ? (
           <a className="secondary-button collection-link" href="#plants">
-            Manage all plants
+            {t("dashboard.manage", "Manage all plants")}
           </a>
         ) : (
           <button className="primary-button" type="button" onClick={onAdd}>
             <Plus size={17} />
-            Add plant
+            {t("dashboard.add", "Add plant")}
           </button>
         )}
       </section>
       {dashboard && (
-        <section className="summary-grid" aria-label="Plant summary">
+        <section className="summary-grid" aria-label={t("dashboard.summary", "Plant summary")}>
           <button
             className="summary-card summary-card--all"
             type="button"
@@ -847,7 +959,7 @@ function PlantCollection({
             </span>
             <span>
               <strong>{counts.total}</strong>
-              <small>Total plants</small>
+              <small>{t("dashboard.total", "Total plants")}</small>
             </span>
           </button>
           <button
@@ -860,7 +972,7 @@ function PlantCollection({
             </span>
             <span>
               <strong>{counts.action_needed}</strong>
-              <small>Action needed</small>
+              <small>{t("dashboard.actionNeeded", "Action needed")}</small>
             </span>
           </button>
           <button
@@ -873,7 +985,7 @@ function PlantCollection({
             </span>
             <span>
               <strong>{counts.overdue}</strong>
-              <small>Overdue</small>
+              <small>{t("dashboard.overdue", "Overdue")}</small>
             </span>
           </button>
           <button
@@ -886,7 +998,7 @@ function PlantCollection({
             </span>
             <span>
               <strong>{counts.sensor_issues}</strong>
-              <small>Sensor issues</small>
+              <small>{t("dashboard.sensorIssues", "Sensor issues")}</small>
             </span>
           </button>
         </section>
@@ -904,10 +1016,10 @@ function PlantCollection({
       {error ? (
         <section className="error-state" role="alert">
           <TriangleAlert />
-          <h2>Dashboard disconnected</h2>
-          <p>{error} Home Assistant monitoring continues independently.</p>
+          <h2>{t("connection.disconnected", "Dashboard disconnected")}</h2>
+          <p>{t("dashboard.disconnectedHelp", "{{error}} Home Assistant monitoring continues independently.", { error })}</p>
           <button type="button" onClick={() => window.location.reload()}>
-            Try again
+            {t("common.tryAgain", "Try again")}
           </button>
         </section>
       ) : !data ? (
@@ -916,23 +1028,17 @@ function PlantCollection({
         dashboard ? (
           <section className="empty-state">
             <Check />
-            <h2>Everything looks steady</h2>
-            <p>
-              No plant needs attention right now. The full collection remains
-              available under All plants.
-            </p>
+            <h2>{t("dashboard.steady", "Everything looks steady")}</h2>
+            <p>{t("dashboard.steadyHelp", "No plant needs attention right now. The full collection remains available under All plants.")}</p>
             <a className="secondary-button" href="#plants">
-              Open full collection
+              {t("dashboard.openCollection", "Open full collection")}
             </a>
           </section>
         ) : (
           <section className="empty-state">
             <Leaf />
-            <h2>No plants match</h2>
-            <p>
-              Clear a filter or search to see the rest of the household
-              collection.
-            </p>
+            <h2>{t("dashboard.noMatch", "No plants match")}</h2>
+            <p>{t("dashboard.noMatchHelp", "Clear a filter or search to see the rest of the household collection.")}</p>
             <button
               type="button"
               onClick={() => {
@@ -940,7 +1046,7 @@ function PlantCollection({
                 onStatus("all");
               }}
             >
-              Clear filters
+              {t("dashboard.clearFilters", "Clear filters")}
             </button>
           </section>
         )
@@ -953,7 +1059,7 @@ function PlantCollection({
       )}
       {dashboard && data && (
         <a className="view-all-link" href="#plants">
-          Open the full collection ({data.plants.length})
+          {t("dashboard.openCount", "Open the full collection ({{count}})", { count: data.plants.length })}
         </a>
       )}
     </div>
@@ -975,46 +1081,47 @@ function PlantToolbar({
   onStatus: (value: PlantState | "all") => void;
   onSort: (value: SortKey) => void;
 }) {
+  const { t } = useI18n();
   return (
-    <section className="toolbar" aria-label="Plant filters">
+    <section className="toolbar" aria-label={t("filters.label", "Plant filters")}>
       <label className="search-field">
         <Search size={18} />
-        <span className="sr-only">Search plants</span>
+        <span className="sr-only">{t("filters.search", "Search plants")}</span>
         <input
           value={query}
           onChange={(event) => onQuery(event.target.value)}
-          placeholder="Search plants, rooms, species…"
+          placeholder={t("filters.placeholder", "Search plants, rooms, species…")}
         />
       </label>
       <div className="toolbar__right">
         <label className="select-field">
           <SlidersHorizontal size={16} />
-          <span className="sr-only">Status filter</span>
+          <span className="sr-only">{t("filters.status", "Status filter")}</span>
           <select
             value={statusFilter}
             onChange={(event) =>
               onStatus(event.target.value as PlantState | "all")
             }
           >
-            <option value="all">All statuses</option>
-            <option value="good">Good</option>
-            <option value="watch">Watch</option>
-            <option value="action_needed">Action needed</option>
-            <option value="overdue">Overdue</option>
-            <option value="sensor_issue">Sensor issue</option>
+            <option value="all">{t("filters.all", "All statuses")}</option>
+            <option value="good">{t("filters.good", "Good")}</option>
+            <option value="watch">{t("filters.watch", "Watch")}</option>
+            <option value="action_needed">{t("filters.action", "Action needed")}</option>
+            <option value="overdue">{t("filters.overdue", "Overdue")}</option>
+            <option value="sensor_issue">{t("filters.sensor", "Sensor issue")}</option>
           </select>
         </label>
         <label className="select-field">
-          <span>Sort:</span>
+          <span>{t("filters.sort", "Sort:")}</span>
           <select
             value={sort}
             onChange={(event) => onSort(event.target.value as SortKey)}
           >
-            <option value="urgency">Urgency</option>
-            <option value="name">Name</option>
-            <option value="moisture">Moisture</option>
-            <option value="temperature">Temperature</option>
-            <option value="last_update">Last update</option>
+            <option value="urgency">{t("filters.urgency", "Urgency")}</option>
+            <option value="name">{t("filters.name", "Name")}</option>
+            <option value="moisture">{t("filters.moisture", "Moisture")}</option>
+            <option value="temperature">{t("filters.temperature", "Temperature")}</option>
+            <option value="last_update">{t("filters.updated", "Last update")}</option>
           </select>
         </label>
       </div>
@@ -1303,16 +1410,21 @@ function ActionHistory({
 }
 
 function SettingsView({
+  appearance,
+  onAppearance,
   health,
   compactCards,
   onCompactCards,
   onSaved,
 }: {
+  appearance: Appearance;
+  onAppearance: (value: Appearance) => void;
   health: HealthResponse | null;
   compactCards: boolean;
   onCompactCards: (value: boolean) => void;
   onSaved: () => void;
 }) {
+  const { t } = useI18n();
   const notificationReady = health?.home_assistant_notifications_enabled;
   const [verifying, setVerifying] = useState(false);
   const [verification, setVerification] = useState<string | null>(null);
@@ -1342,6 +1454,20 @@ function SettingsView({
       <div className="settings-grid">
         <section className="settings-card">
           <h3>Display</h3>
+          <fieldset className="appearance-picker">
+            <legend>{t("appearance.title", "Appearance")}</legend>
+            <div>
+              {(["system", "light", "dark"] as const).map((value) => (
+                <label key={value}>
+                  <input type="radio" name="appearance" value={value}
+                    checked={appearance === value}
+                    onChange={() => onAppearance(value)} />
+                  <span>{t(`appearance.${value}`, value === "system" ? "System" : value === "light" ? "Light" : "Dark")}</span>
+                </label>
+              ))}
+            </div>
+            <p>{t("appearance.note", "Applies immediately. Remembered on this device.")}</p>
+          </fieldset>
           <label className="switch-row">
             <span>
               <strong>Compact plant cards</strong>
@@ -1697,10 +1823,19 @@ function PlantDetailDialog({
   onMarkDone: (action: CareAction) => void;
   onSimulateWatering: () => void;
 }) {
+  const { locale, t } = useI18n();
   const image = plantImage(plant);
   const openActions = actions.filter((action) => action.status !== "completed");
-  const hasWateringAction = openActions.some(
+  const wateringActions = openActions.filter(
     (action) => action.type === "low_moisture",
+  );
+  const hasWateringAction = wateringActions.length > 0;
+  const otherActions = openActions.filter((action) => action.type !== "low_moisture");
+  const detailPhoto = image && (
+    <figure className={`detail-photo ${hasWateringAction ? "detail-photo--after-care" : ""}`}>
+      <img src={image.src} alt={image.alt} />
+      <figcaption>{image.credit}</figcaption>
+    </figure>
   );
   const mappedSensors = plant.entity_mapping
     ? Object.values(plant.entity_mapping).filter(Boolean).length
@@ -1722,19 +1857,14 @@ function PlantDetailDialog({
         <button
           className="dialog__close"
           type="button"
-          aria-label="Close plant details"
+          aria-label={t("plant.closeDetails", "Close plant details")}
           onClick={onClose}
         >
           <X />
         </button>
-        {image && (
-          <figure className="detail-photo">
-            <img src={image.src} alt={image.alt} />
-            <figcaption>{image.credit}</figcaption>
-          </figure>
-        )}
+        {!hasWateringAction && detailPhoto}
         <span className={`status-pill status-pill--${plant.state}`}>
-          {plantStatusLabel(plant)}
+          {plantStatusLabel(plant, locale)}
         </span>
         <p className="eyebrow">
           {plant.location}
@@ -1747,104 +1877,110 @@ function PlantDetailDialog({
           {plant.common_name}
           {plant.scientific_name ? ` · ${plant.scientific_name}` : ""}
         </p>
+        {hasWateringAction && (
+          <section className="watering-guide" aria-labelledby="watering-guide-title">
+            <div className="watering-guide__heading">
+              <Droplets size={24} aria-hidden="true" />
+              <h3 id="watering-guide-title">{t("plant.howToWater", "How to water this plant")}</h3>
+            </div>
+            {wateringActions.map((action) => (
+              <p className="watering-guide__instructions" key={action.id}>{action.recommendation}</p>
+            ))}
+            <small>{t("plant.monitoringManaged", "Monitoring-managed: closes automatically when the condition recovers.")}</small>
+            <button className="simulate-button" type="button" onClick={onSimulateWatering}>
+              {t("plant.simulateWatering", "Simulate confirmed watering")}
+            </button>
+          </section>
+        )}
+        {hasWateringAction && detailPhoto}
         <div className="mapping-banner">
           <div>
-            <strong>Home Assistant sensors</strong>
+            <strong>{t("plant.haSensors", "Home Assistant sensors")}</strong>
             <small>
               {mappedSensors === 0
-                ? "No entities mapped"
-                : `${mappedSensors} of 4 entities mapped`}
+                ? t("plant.noneMapped", "No entities mapped")
+                : t("plant.mappedCount", "{{count}} of 4 entities mapped", { count: mappedSensors })}
             </small>
           </div>
           <button type="button" onClick={onMapping}>
-            Manage sensor mapping
+            {t("plant.manageMapping", "Manage sensor mapping")}
           </button>
         </div>
         <div className="detail-readings">
           <div>
-            <span>Moisture</span>
+            <span>{t("plant.moisture", "Moisture")}</span>
             <strong>
-              {plant.moisture === null ? "No reading" : `${plant.moisture}%`}
+              {plant.moisture === null ? t("plant.noReading", "No reading") : `${plant.moisture}%`}
             </strong>
             <small>{plant.moisture_status}</small>
           </div>
           <div>
-            <span>Temperature</span>
+            <span>{t("plant.temperature", "Temperature")}</span>
             <strong>
               {plant.temperature === null
-                ? "No reading"
+                ? t("plant.noReading", "No reading")
                 : `${plant.temperature.toFixed(1)}°C`}
             </strong>
             <small>{plant.temperature_status}</small>
           </div>
           <div>
-            <span>Battery</span>
+            <span>{t("plant.battery", "Battery")}</span>
             <strong>
-              {plant.battery === null ? "No reading" : `${plant.battery}%`}
+              {plant.battery === null ? t("plant.noReading", "No reading") : `${plant.battery}%`}
             </strong>
-            <small>Sensor power</small>
+            <small>{t("plant.sensorPower", "Sensor power")}</small>
           </div>
           <div>
-            <span>Illuminance</span>
+            <span>{t("plant.illuminance", "Illuminance")}</span>
             <strong>
               {plant.illuminance === null
-                ? "Not mapped"
+                ? t("plant.notMapped", "Not mapped")
                 : `${plant.illuminance} lx`}
             </strong>
-            <small>Optional reading</small>
+            <small>{t("plant.optionalReading", "Optional reading")}</small>
           </div>
         </div>
         <PlantTipsSection plant={plant} visit={tipVisit} />
-        <section className="detail-actions">
-          <h3>Care actions</h3>
+        {(otherActions.length > 0 || !hasWateringAction || plant.drying_note) && <section className="detail-actions">
+          <h3>{t("plant.careActions", "Care actions")}</h3>
           {plant.drying_note && <p className="drying-note">{plant.drying_note}</p>}
-          {openActions.map((action) => {
+          {otherActions.map((action) => {
             const sensorManaged = autoManagedActionTypes.has(action.type);
             return (
               <div className="detail-action-row" key={action.id}>
                 <div>
                   {action.type === "ai_recommendation" && (
                     <span className="ai-recommendation-badge">
-                      AI recommendation
+                      {t("plant.aiRecommendation", "AI recommendation")}
                     </span>
                   )}
                   <strong>{action.title}</strong>
                   <p>{action.recommendation}</p>
                   {sensorManaged && (
                     <small>
-                      Monitoring-managed: closes automatically when the condition
-                      recovers.
+                      {t("plant.monitoringManaged", "Monitoring-managed: closes automatically when the condition recovers.")}
                     </small>
                   )}
                 </div>
                 {!sensorManaged && (
                   <button type="button" onClick={() => onMarkDone(action)}>
-                    Mark done
+                    {t("plant.markDone", "Mark done")}
                   </button>
                 )}
               </div>
             );
           })}
-          {openActions.length === 0 && <p>No open actions for this plant.</p>}
-          {hasWateringAction && (
-            <button
-              className="simulate-button"
-              type="button"
-              onClick={onSimulateWatering}
-            >
-              Simulate confirmed watering
-            </button>
-          )}
-        </section>
+          {openActions.length === 0 && <p>{t("plant.noOpenActions", "No open actions for this plant.")}</p>}
+        </section>}
         <div className="dialog__footer">
           <button className="secondary-button" type="button" onClick={onEdit}>
-            Edit plant
+            {t("plant.edit", "Edit plant")}
           </button>
           <button className="secondary-button" type="button" onClick={onDoctor}>
-            Plant doctor
+            {t("plant.doctor", "Plant doctor")}
           </button>
           <button className="primary-button" type="button" onClick={onClose}>
-            Done
+            {t("common.done", "Done")}
           </button>
         </div>
       </section>
@@ -2119,6 +2255,7 @@ function DoctorDialog({
     visitId: string | null,
   ) => Promise<void>;
 }) {
+  const { locale, t } = useI18n();
   const [consent, setConsent] = useState(false);
   const [symptoms, setSymptoms] = useState("");
   const [fallbackConsent, setFallbackConsent] = useState(false);
@@ -2168,7 +2305,7 @@ function DoctorDialog({
     setChecking(true);
     setMessage(null);
     try {
-      setResult(await diagnosePlant(plant.id, photoFile, symptoms, fallbackConsent));
+      setResult(await diagnosePlant(plant.id, photoFile, symptoms, fallbackConsent, locale));
       setActionAdded(false);
       setActionDeclined(false);
       await refreshDoctorData();
@@ -2272,30 +2409,24 @@ function DoctorDialog({
         <button
           className="dialog__close"
           type="button"
-          aria-label="Close plant doctor"
+          aria-label={t("doctor.closeA11y", "Close plant doctor")}
           onClick={onClose}
         >
           <X />
         </button>
-        <p className="eyebrow">PLANT DOCTOR · {usage?.provider ?? "AI assessment"}</p>
-        <h2 id="doctor-dialog-title">Check {plant.display_name}</h2>
+        <p className="eyebrow">{t("doctor.eyebrow", "PLANT DOCTOR · {{provider}}", { provider: usage?.provider ?? t("doctor.aiAssessment", "AI assessment") })}</p>
+        <h2 id="doctor-dialog-title">{t("doctor.checkPlant", "Check {{name}}", { name: plant.display_name })}</h2>
         {result ? (
           <DoctorResult result={result} photo={photoPreview} plant={plant} />
         ) : (
           <>
-            <p className="dialog-subtitle">
-              Choose or take a current diagnostic photo. Your cover photo stays
-              unchanged. The selected photo, latest sensor values, a compact
-              seven-day soil-moisture summary, and up to five recent Doctor
-              summaries, decisions, outcomes, and your notes will be sent to {usage?.provider ?? "your configured provider"} for
-              this check.
-            </p>
+            <p className="dialog-subtitle">{t("doctor.intro", "Choose or take a current diagnostic photo. Your cover photo stays unchanged. The selected photo, latest sensor values, a compact seven-day soil-moisture summary, and up to five recent Doctor summaries, decisions, outcomes, and your notes will be sent to {{provider}} for this check.", { provider: usage?.provider ?? t("doctor.configuredProvider", "your configured provider") })}</p>
             {photoPreview ? (
               <div className="doctor-photo-selection">
                 <img
                   className="doctor-photo"
                   src={photoPreview}
-                  alt={`Photo to diagnose for ${plant.display_name}`}
+                  alt={t("doctor.photoAlt", "Photo to diagnose for {{name}}", { name: plant.display_name })}
                 />
                 <button
                   className="photo-picker doctor-photo-replace"
@@ -2304,8 +2435,8 @@ function DoctorDialog({
                 >
                   <ImagePlus size={17} />
                   <span>
-                    <strong>Choose a different photo</strong>
-                    <small>JPEG, PNG, WebP, HEIC/HEIF, or AVIF · maximum 10 MB</small>
+                    <strong>{t("doctor.chooseDifferent", "Choose a different photo")}</strong>
+                    <small>{t("doctor.formats", "JPEG, PNG, WebP, HEIC/HEIF, or AVIF · maximum 10 MB")}</small>
                   </span>
                 </button>
                 <input
@@ -2319,16 +2450,13 @@ function DoctorDialog({
             ) : (
               <div className="doctor-empty">
                 <Camera />
-                <h3>Choose a current diagnostic photo</h3>
-                <p>
-                  On iPhone you can take a new picture or select one from your
-                  photo library.
-                </p>
+                <h3>{t("doctor.chooseCurrent", "Choose a current diagnostic photo")}</h3>
+                <p>{t("doctor.iphoneHelp", "On iPhone you can take a new picture or select one from your photo library.")}</p>
                 <label className="photo-picker doctor-photo-picker">
                   <ImagePlus size={18} />
                   <span>
-                    <strong>Take or choose a photo</strong>
-                    <small>It will not replace the plant's cover photo</small>
+                    <strong>{t("doctor.takeOrChoose", "Take or choose a photo")}</strong>
+                    <small>{t("doctor.coverUnchanged", "It will not replace the plant's cover photo")}</small>
                   </span>
                   <input
                     type="file"
@@ -2341,24 +2469,24 @@ function DoctorDialog({
               </div>
             )}
             <label className="doctor-symptoms">
-              <strong>What changed? <small>Optional</small></strong>
+              <strong>{t("doctor.whatChanged", "What changed?")} <small>{t("common.optional", "Optional")}</small></strong>
               <textarea
                 value={symptoms}
                 onChange={(event) => setSymptoms(event.target.value)}
                 maxLength={2000}
                 rows={3}
-                placeholder="For example: wilted in the last 24 hours; watered yesterday; recently moved into sun."
+                placeholder={t("doctor.symptomsPlaceholder", "For example: wilted in the last 24 hours; watered yesterday; recently moved into sun.")}
               />
             </label>
             <DoctorUsage usage={usage} />
             {usage?.provider === "Google Gemini" && (
-              <p className="doctor-note">Google's free API tier may use submitted content to improve its products. Review your Google AI Studio data settings before sending.</p>
+              <p className="doctor-note">{t("doctor.geminiNotice", "Google's free API tier may use submitted content to improve its products. Review your Google AI Studio data settings before sending.")}</p>
             )}
             {usage?.fallback_available && (
               <label className="consent-row">
                 <input type="checkbox" checked={fallbackConsent}
                   onChange={(event) => setFallbackConsent(event.target.checked)} />
-                Also allow Cloudflare to receive this photo and context if Gemini cannot complete the check.
+                {t("doctor.fallbackConsent", "Also allow Cloudflare to receive this photo and context if Gemini cannot complete the check.")}
               </label>
             )}
             <label className="consent-row">
@@ -2367,14 +2495,9 @@ function DoctorDialog({
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              I agree to send this photo, my notes, and limited plant context to {usage?.provider ?? "the configured AI provider"} for one assessment.
+              {t("doctor.consent", "I agree to send this photo, my notes, and limited plant context to {{provider}} for one assessment.", { provider: usage?.provider ?? t("doctor.consentProvider", "the configured AI provider") })}
             </label>
-            <p className="doctor-note">
-              PlantCare does not store this diagnostic photo or replace the
-              cover image. Results are saved locally as patient history; you
-              decide whether to add the recommendation to the care queue and
-              whether it helped.
-            </p>
+            <p className="doctor-note">{t("doctor.privacy", "PlantCare does not store this diagnostic photo or replace the cover image. Results are saved locally as patient history; you decide whether to add the recommendation to the care queue and whether it helped.")}</p>
           </>
         )}
         {message && (
@@ -2391,7 +2514,7 @@ function DoctorDialog({
         )}
         <div className="dialog__footer">
           <button className="secondary-button" type="button" onClick={onClose}>
-            Close
+            {t("common.close", "Close")}
           </button>
           {!result && (
             <button
@@ -2400,7 +2523,7 @@ function DoctorDialog({
               disabled={!photoFile || !consent || checking || !usage || usage.configured === false}
               onClick={check}
             >
-              {checking ? "Checking…" : "Send for diagnosis"}
+              {checking ? t("doctor.checking", "Checking…") : t("doctor.send", "Send for diagnosis")}
             </button>
           )}
           {result && (
@@ -2417,7 +2540,7 @@ function DoctorDialog({
                   setActionDeclined(false);
                 }}
               >
-                Check again
+                {t("doctor.checkAgain", "Check again")}
               </button>
               <button
                 className="secondary-button"
@@ -2430,7 +2553,7 @@ function DoctorDialog({
                 }
                 onClick={declineAction}
               >
-                {actionDeclined ? "Not added" : "Don't add"}
+                {actionDeclined ? t("doctor.notAdded", "Not added") : t("doctor.dontAdd", "Don't add")}
               </button>
               <button
                 className="primary-button"
@@ -2439,10 +2562,10 @@ function DoctorDialog({
                 onClick={addAction}
               >
                 {actionAdded
-                  ? "Added to care queue"
+                  ? t("doctor.added", "Added to care queue")
                   : addingAction
-                    ? "Adding…"
-                    : "Add AI recommendation"}
+                    ? t("doctor.adding", "Adding…")
+                    : t("doctor.addRecommendation", "Add AI recommendation")}
               </button>
             </>
           )}
@@ -2464,21 +2587,19 @@ function DoctorHistory({
     outcome: PlantDoctorOutcome,
   ) => Promise<void>;
 }) {
+  const { locale, t } = useI18n();
   const outcomeLabels: Record<PlantDoctorOutcome, string> = {
-    not_tried: "Not tried",
-    helped: "Helped",
-    did_not_help: "Didn't help",
-    not_sure: "Not sure",
+    not_tried: t("doctor.notTried", "Not tried"),
+    helped: t("doctor.helped", "Helped"),
+    did_not_help: t("doctor.didNotHelp", "Didn't help"),
+    not_sure: t("doctor.notSure", "Not sure"),
   };
   return (
     <section className="doctor-history" aria-labelledby="doctor-history-title">
       <div className="doctor-history__heading">
         <div>
-          <h3 id="doctor-history-title">Patient history</h3>
-          <p>
-            Stored locally; only the five most recent entries inform the next
-            check.
-          </p>
+          <h3 id="doctor-history-title">{t("doctor.history", "Patient history")}</h3>
+          <p>{t("doctor.historyHelp", "Stored locally; only the five most recent entries inform the next check.")}</p>
         </div>
         <span>{visits.length}</span>
       </div>
@@ -2487,31 +2608,31 @@ function DoctorHistory({
           <article key={visit.id}>
             <div className="doctor-history__meta">
               <time dateTime={visit.created_at}>
-                {formatDateTime(visit.created_at)}
+                {formatDateTime(visit.created_at, locale)}
               </time>
               <span
                 className={`doctor-decision doctor-decision--${visit.decision}`}
               >
                 {visit.decision === "accepted"
-                  ? "Added to queue"
+                  ? t("doctor.addedQueue", "Added to queue")
                   : visit.decision === "declined"
-                    ? "Not added"
-                    : "Awaiting decision"}
+                    ? t("doctor.notAdded", "Not added")
+                    : t("doctor.awaiting", "Awaiting decision")}
               </span>
             </div>
             <strong>{visit.summary}</strong>
-            {visit.symptoms && <p><strong>Your notes:</strong> {visit.symptoms}</p>}
-            {visit.care_plan?.reassess && <p><strong>Follow-up:</strong> {visit.care_plan.reassess}</p>}
-            <small>{visit.provider}{visit.fallback_used ? " · fallback used" : ""}</small>
+            {visit.symptoms && <p><strong>{t("doctor.yourNotes", "Your notes:")}</strong> {visit.symptoms}</p>}
+            {visit.care_plan?.reassess && <p><strong>{t("doctor.followUp", "Follow-up:")}</strong> {visit.care_plan.reassess}</p>}
+            <small>{visit.provider}{visit.fallback_used ? t("doctor.fallbackUsed", " · fallback used") : ""}</small>
             {visit.next_steps.length > 0 && (
               <p>{visit.next_steps.join(" · ")}</p>
             )}
             {visit.decision === "accepted" && (
               <div
                 className="doctor-outcome"
-                aria-label="Recommendation outcome"
+                aria-label={t("doctor.outcome", "Recommendation outcome")}
               >
-                <span>Did it help?</span>
+                <span>{t("doctor.didHelp", "Did it help?")}</span>
                 {(
                   ["helped", "did_not_help", "not_sure"] as PlantDoctorOutcome[]
                 ).map((outcome) => (
@@ -2534,28 +2655,28 @@ function DoctorHistory({
   );
 }
 function DoctorUsage({ usage }: { usage: PlantDoctorUsageResponse | null }) {
+  const { locale, t } = useI18n();
   if (!usage)
     return (
       <div className="doctor-usage doctor-usage--loading">
-        Loading today's usage…
+        {t("doctor.loadingUsage", "Loading today's usage…")}
       </div>
     );
   return (
-    <aside className="doctor-usage" aria-label="AI usage reminder">
+    <aside className="doctor-usage" aria-label={t("doctor.usageA11y", "AI usage reminder")}>
       <strong>
-        {usage.checks_today} completed{" "}
-        {usage.checks_today === 1 ? "check" : "checks"} since 00:00 UTC
+        {t("doctor.completedChecks", "{{count}} completed checks since 00:00 UTC", { count: usage.checks_today })}
       </strong>
       {usage.provider === "Google Gemini" ? <span>
-        Gemini limits depend on your model and account. Check Google AI Studio for remaining quota and reset times.
+        {t("doctor.geminiLimits", "Gemini limits depend on your model and account. Check Google AI Studio for remaining quota and reset times.")}
       </span> : <span>
-        Estimated {usage.estimated_neurons_per_check} neurons per check ·{" "}
-        {usage.daily_free_neuron_limit.toLocaleString("en-US")} free neurons/day
+        {t("doctor.cloudflareUsage", "Estimated {{estimate}} neurons per check · {{limit}} free neurons/day", {
+          estimate: usage.estimated_neurons_per_check,
+          limit: usage.daily_free_neuron_limit.toLocaleString(locale === "he" ? "he-IL" : "en-US"),
+        })}
       </span>}
       <small>
-        This local count includes completed PlantCare checks across providers, not remaining credits.
-        Failed attempts and fallback processing may also consume provider quota.
-        Paid accounts may incur charges.
+        {t("doctor.usageHelp", "This local count includes completed PlantCare checks across providers, not remaining credits. Failed attempts and fallback processing may also consume provider quota. Paid accounts may incur charges.")}
       </small>
     </aside>
   );
@@ -2570,89 +2691,92 @@ function DoctorResult({
   photo: string | null;
   plant: Plant;
 }) {
+  const { locale, t } = useI18n();
   return (
     <div className="doctor-result">
       <header className="doctor-gardener">
         <img src={gardenerUrl} alt="" width="72" height="72" />
         <div>
-          <span>YOUR AI GARDENER</span>
-          <h3>{result.identity_status === "mismatch" ? "Photo review" : "A care plan"} for {plant.display_name}</h3>
-          <p>Plant-specific guidance, one step at a time.</p>
+          <span>{t("doctor.gardener", "YOUR AI GARDENER")}</span>
+          <h3>{result.identity_status === "mismatch"
+            ? t("doctor.photoReview", "Photo review for {{name}}", { name: plant.display_name })
+            : t("doctor.carePlan", "A care plan for {{name}}", { name: plant.display_name })}</h3>
+          <p>{t("doctor.oneStep", "Plant-specific guidance, one step at a time.")}</p>
         </div>
       </header>
       {result.identity_status !== "match" && (
         <aside className="doctor-disclaimer" role="status">
-          <strong>{result.identity_status === "mismatch" ? "This may be a different plant." : "Plant identity is not confirmed."}</strong>
-          <p>{result.identity_explanation || "Species is uncertain; guidance is based on visible symptoms."}</p>
+          <strong>{result.identity_status === "mismatch" ? t("doctor.differentPlant", "This may be a different plant.") : t("doctor.identityUnknown", "Plant identity is not confirmed.")}</strong>
+          <p>{result.identity_explanation || t("doctor.identityFallback", "Species is uncertain; guidance is based on visible symptoms.")}</p>
         </aside>
       )}
       {photo && (
         <img
           className="doctor-result__photo"
           src={photo}
-          alt={`Diagnosed photo of ${plant.display_name}`}
+          alt={t("doctor.diagnosedAlt", "Diagnosed photo of {{name}}", { name: plant.display_name })}
         />
       )}
       <p className="doctor-result__identity">
-        <strong>Assessment for {plant.display_name}</strong>
+        <strong>{t("doctor.assessmentFor", "Assessment for {{name}}", { name: plant.display_name })}</strong>
         <span>
           {plant.common_name}
           {plant.scientific_name
             ? ` · ${plant.scientific_name}`
-            : " · species not confirmed"}
+            : ` · ${t("plant.speciesUnknown", "species not confirmed")}`}
         </span>
       </p>
       <div className="doctor-result__summary">
         <span className={`confidence confidence--${result.confidence}`}>
-          {result.confidence} care confidence
+          {t("doctor.careConfidence", "{{value}} care confidence", { value: result.confidence })}
         </span>
         {result.care_plan && result.care_plan.urgency !== "unknown" && (
           <span className={`confidence confidence--${result.care_plan.urgency === "urgent" ? "low" : "medium"}`}>
-            {({routine: "Routine care", soon: "Attention soon", urgent: "Act today", unknown: ""})[result.care_plan.urgency]}
+            {({routine: t("doctor.routine", "Routine care"), soon: t("doctor.soon", "Attention soon"), urgent: t("doctor.urgent", "Act today"), unknown: ""})[result.care_plan.urgency]}
           </span>
         )}
         <blockquote className="doctor-quote">{result.summary}</blockquote>
       </div>
       {result.next_steps.length > 0 && (
-        <DoctorList title="What to do now" items={result.next_steps} recommendation />
+        <DoctorList title={t("doctor.now", "What to do now")} items={result.next_steps} recommendation />
       )}
-      {!!result.care_plan?.evidence.length && <DoctorList title="Why this may be happening" items={result.care_plan.evidence} />}
-      {!!result.care_plan?.avoid.length && <DoctorList title="What to avoid" items={result.care_plan.avoid} />}
-      {result.care_plan?.expected_improvement && <section><h4>Expected improvement</h4><p>{result.care_plan.expected_improvement}</p></section>}
-      {result.care_plan?.reassess && <section><h4>When to reassess</h4><p>{result.care_plan.reassess}</p></section>}
+      {!!result.care_plan?.evidence.length && <DoctorList title={t("doctor.why", "Why this may be happening")} items={result.care_plan.evidence} />}
+      {!!result.care_plan?.avoid.length && <DoctorList title={t("doctor.avoid", "What to avoid")} items={result.care_plan.avoid} />}
+      {result.care_plan?.expected_improvement && <section><h4>{t("doctor.expected", "Expected improvement")}</h4><p>{result.care_plan.expected_improvement}</p></section>}
+      {result.care_plan?.reassess && <section><h4>{t("doctor.reassess", "When to reassess")}</h4><p>{result.care_plan.reassess}</p></section>}
       {result.observations.length > 0 && (
-        <DoctorList title="Visible observations" items={result.observations} />
+        <DoctorList title={t("doctor.observations", "Visible observations")} items={result.observations} />
       )}
       {result.possible_issues.length > 0 && (
-        <DoctorList title="Possible issues" items={result.possible_issues} />
+        <DoctorList title={t("doctor.issues", "Possible issues")} items={result.possible_issues} />
       )}
       <section
         className="doctor-watering-plan"
         aria-labelledby="doctor-watering-title"
       >
-        <h4 id="doctor-watering-title">Watering plan</h4>
+        <h4 id="doctor-watering-title">{t("doctor.watering", "Watering plan")}</h4>
         <blockquote className="doctor-quote">{result.watering_guidance.assessment}</blockquote>
         <div className="doctor-watering-threshold">
-          <strong>Suggested notification point</strong>
+          <strong>{t("doctor.notificationPoint", "Suggested notification point")}</strong>
           <span>{result.watering_guidance.notification_point}</span>
         </div>
         {result.watering_guidance.manual_checks.length > 0 && (
           <DoctorList
-            title="Check this pot first"
+            title={t("doctor.checkPot", "Check this pot first")}
             items={result.watering_guidance.manual_checks}
             recommendation
           />
         )}
         {result.watering_guidance.watering_steps.length > 0 && (
           <DoctorList
-            title="If it is ready for water"
+            title={t("doctor.ifWater", "If it is ready for water")}
             items={result.watering_guidance.watering_steps}
             recommendation
           />
         )}
         {result.watering_guidance.drying_steps.length > 0 && (
           <DoctorList
-            title="If it has stayed too wet"
+            title={t("doctor.ifWet", "If it has stayed too wet")}
             items={result.watering_guidance.drying_steps}
             recommendation
           />
@@ -2661,10 +2785,12 @@ function DoctorResult({
       <p className="doctor-disclaimer">{result.disclaimer}</p>
       <small>
         {result.provider} ·{" "}
-        {result.total_tokens != null ? `${result.total_tokens.toLocaleString()} tokens` : result.neurons === null
-          ? "Usage unavailable"
-          : `${result.neurons.toFixed(2)} neurons`}
-        {result.fallback_used && " · Cloudflare fallback used; usage shown covers that provider only."}
+        {result.total_tokens != null
+          ? t("doctor.tokens", "{{count}} tokens", { count: result.total_tokens.toLocaleString(locale === "he" ? "he-IL" : "en-US") })
+          : result.neurons === null
+            ? t("doctor.usageUnavailable", "Usage unavailable")
+            : t("doctor.neurons", "{{count}} neurons", { count: result.neurons.toFixed(2) })}
+        {result.fallback_used && t("doctor.cloudflareFallback", " · Cloudflare fallback used; usage shown covers that provider only.")}
       </small>
     </div>
   );
@@ -3475,9 +3601,9 @@ function EditPlantDialog({
   );
 }
 
-function formatDateTime(value: string | null): string {
+function formatDateTime(value: string | null, locale: "en" | "he" = "en"): string {
   return value
-    ? new Intl.DateTimeFormat("en-GB", {
+    ? new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date(value))
