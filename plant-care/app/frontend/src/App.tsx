@@ -927,14 +927,9 @@ function PlantCollection({
 
   return (
     <div className="content" id={dashboard ? "dashboard" : "plants"}>
-      <section className="intro">
+      <section className={`intro ${dashboard ? "intro--dashboard" : ""}`}>
         <div>
           <h2>{dashboard ? t("dashboard.attention", "Needs attention") : t("dashboard.collection", "Plant collection")}</h2>
-          <p>
-            {dashboard
-              ? t("dashboard.attentionHelp", "A focused overview of plants that need care, watching, or a sensor fix.")
-              : t("dashboard.collectionHelp", "Your full inventory: search, add, edit, inspect, or archive every plant.")}
-          </p>
         </div>
         {dashboard ? (
           <a className="secondary-button collection-link" href="#plants">
@@ -1162,9 +1157,6 @@ function ActionQueue({
       <section className="intro">
         <div>
           <h2>Shared household actions</h2>
-          <p>
-            Mark an item done or snooze it here; every change is recorded below.
-          </p>
         </div>
         <span className="queue-count">
           {open.length + snoozed.length} active
@@ -1445,10 +1437,6 @@ function SettingsView({
       <section className="intro">
         <div>
           <h2>Portal preferences</h2>
-          <p>
-            Display preferences stay in this browser; sensor monitoring is
-            configured in the Home Assistant app settings.
-          </p>
         </div>
       </section>
       <div className="settings-grid">
@@ -1585,10 +1573,6 @@ function HelpView({
       <section className="intro">
         <div>
           <h2>Diagnostics</h2>
-          <p>
-            Live checks for the local API, database, sensor monitor, and
-            notification delivery.
-          </p>
         </div>
         <button className="secondary-button" type="button" onClick={onRefresh}>
           <RefreshCw size={16} />

@@ -40,8 +40,6 @@ const he: Record<string, string> = {
   "profile.household": "משק בית מאומת",
   "dashboard.attention": "דורשים תשומת לב",
   "dashboard.collection": "אוסף הצמחים",
-  "dashboard.attentionHelp": "סקירה ממוקדת של צמחים שדורשים טיפול, מעקב או תיקון חיישן.",
-  "dashboard.collectionHelp": "כל האוסף שלך: חיפוש, הוספה, עריכה, בדיקה או הסרה של כל צמח.",
   "dashboard.manage": "ניהול כל הצמחים",
   "dashboard.add": "הוספת צמח",
   "dashboard.summary": "סיכום צמחים",

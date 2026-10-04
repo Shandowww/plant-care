@@ -2,6 +2,13 @@
 
 ## Resume checkpoint
 
+- Release 0.13.1 UI refinement: dashboard Manage all plants now
+  sits on its own row below Needs attention at every width. Redundant intro copy
+  removed from dashboard, collection, care queue, Settings and Diagnostics;
+  consent, warnings and setup guidance remain. 42 frontend tests plus lint,
+  typecheck, production build and diff check pass. Version references synchronized;
+  publication status is available in Git origin/main and GitHub CI.
+
 - Release 0.13.0 packages the design/appearance/refresh changes, shorter Temp
   label, battery threshold and pending English/Hebrew localization described below.
   Version references are synchronized. Local verification: 156 backend + 42

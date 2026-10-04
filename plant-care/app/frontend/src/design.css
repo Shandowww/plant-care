@@ -52,6 +52,9 @@ textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; 
 .profile-button > span:nth-child(2) { font-size: 14px; }
 .content { padding-top: 32px; }
 .intro { gap: 16px; }
+.intro--dashboard { flex-direction: column; align-items: flex-start; gap: 8px; }
+.intro--dashboard .collection-link { align-self: flex-start; text-decoration: none; }
+.intro--dashboard .collection-link:hover { text-decoration: underline; }
 .intro h2 { font-size: 28px; letter-spacing: -0.7px; }
 .intro p { font-size: 14px; line-height: 1.55; }
 .primary-button, .secondary-button, .danger-button,
@@ -165,6 +168,7 @@ textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; 
   .profile-button { min-width: 44px; }
   .content { padding: 24px max(16px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .intro { align-items: flex-start; }
+  .intro--dashboard { align-items: flex-start; }
   .intro h2 { font-size: 25px; }
   .sidebar { padding-top: max(30px, env(safe-area-inset-top)); padding-bottom: max(22px, env(safe-area-inset-bottom)); }
   .summary-grid, .plant-grid { gap: 12px; }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.1
+
+- Place “Manage all plants” below the dashboard heading instead of squeezing it
+  beside the title. Remove redundant section-introduction descriptions.
+
 ## 0.13.0
 
 - Follow Home Assistant/browser language for the dashboard and Plant Doctor,
