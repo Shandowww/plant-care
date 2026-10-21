@@ -164,3 +164,56 @@ def test_notification_settings_require_authentication(tmp_path):
             client.post("/api/v1/notifications/preferences", json={"devices": []}).status_code
             == 401
         )
+
+
+def test_device_test_reports_partial_failure_without_saving_preferences(tmp_path):
+    sink = MobileNotifier()
+    sink.fail.add("mobile_app_tablet")
+    with production_client(tmp_path, FakeHomeAssistant(), sink) as client:
+        response = client.post(
+            "/api/v1/notifications/test",
+            json={"devices": ["mobile_app_phone", "mobile_app_tablet"], "persistent": False},
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "accepted": ["mobile_app_phone"],
+            "failed": ["mobile_app_tablet"],
+        }
+        assert client.get("/api/v1/notifications/preferences").json() == {
+            "devices": [],
+            "persistent": True,
+        }
+        assert sink.created == []
+        assert sink.sent[0][1]["title"] == "PlantCare notification test"
+
+
+def test_device_test_rejects_unregistered_devices_and_requires_authentication(tmp_path):
+    sink = MobileNotifier()
+    with production_client(tmp_path, FakeHomeAssistant(), sink) as client:
+        for devices in ([], ["mobile_app_unknown"], ["restart"]):
+            assert (
+                client.post("/api/v1/notifications/test", json={"devices": devices}).status_code
+                == 422
+            )
+        client.headers.clear()
+        client.headers["x-plantcare-surface"] = "lan"
+        assert (
+            client.post(
+                "/api/v1/notifications/test", json={"devices": ["mobile_app_phone"]}
+            ).status_code
+            == 401
+        )
+        assert sink.sent == []
+
+
+def test_selecting_device_does_not_replay_existing_panel_alert(tmp_path):
+    source, sink = FakeHomeAssistant(), MobileNotifier()
+    with production_client(tmp_path, source, sink) as client:
+        add_plant(client)
+        source.entities.pop(0)
+        client.post("/api/v1/home-assistant/sync")
+        assert len(sink.created) == 1
+        client.post("/api/v1/notifications/preferences", json={"devices": ["mobile_app_phone"]})
+        client.post("/api/v1/home-assistant/sync")
+        assert sink.sent == []
+        assert len(sink.created) == 1

@@ -24,6 +24,10 @@ export function saveNotificationPreferences(value: NotificationPreferences): Pro
   return jsonMutation("/api/v1/notifications/preferences", value);
 }
 
+export function testNotificationDevices(value: NotificationPreferences): Promise<{ accepted: string[]; failed: string[] }> {
+  return jsonMutation("/api/v1/notifications/test", value);
+}
+
 export async function verifyGeminiSetup(): Promise<{ok: boolean; reason: string; message: string; model: string}> {
   return jsonMutation("/api/v1/plant-doctor/verify");
 }

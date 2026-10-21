@@ -333,6 +333,15 @@ Selections are household-wide, stored in the persistent database, and apply to
 new alerts without a restart. Existing alerts retain their original recipients
 for retries and clearing. Delivery acknowledgements are saved per recipient, so
 an unavailable device does not cause repeated sends to successful recipients.
+
+Use **Send test to selected devices** to check mobile delivery immediately,
+including before saving a selection. This sends a test to each selected device
+without changing saved recipients or replaying existing care alerts. Results
+distinguish requests accepted by Home Assistant from failed requests; acceptance
+does not confirm that a phone displayed the notification. If an accepted test
+does not appear, check the Companion app's notification permission and the
+device's Focus / Do Not Disturb settings. For failures, check Home Assistant
+logs and Companion app registration, refresh the device list, and retry.
 Phone alerts use the same plant link and a stable tag; recovery requests clearing
 on the original devices. iOS/Android restrictions may delay clearing, and the
 plant deep link still needs verification on a real device via your HA connection.

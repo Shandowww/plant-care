@@ -321,6 +321,35 @@ def create_app(
             await session.commit()
         return payload
 
+    @application.post("/api/v1/notifications/test")
+    async def test_notification_devices(
+        payload: NotificationPreferences, identity: CurrentIdentity
+    ) -> dict[str, list[str]]:
+        if not notifications_enabled or notification_sink is None:
+            raise HTTPException(409, "Notification delivery is disabled in add-on configuration.")
+        if not payload.devices:
+            raise HTTPException(422, "Select at least one device to test.")
+        available = await notification_devices(identity)
+        if not set(payload.devices).issubset(available):
+            raise HTTPException(
+                422, "Refresh devices and choose a registered Companion app device."
+            )
+        accepted: list[str] = []
+        failed: list[str] = []
+        for device in payload.devices:
+            try:
+                await notification_sink.notify_device(
+                    device,
+                    {
+                        "title": "PlantCare notification test",
+                        "message": "Device notifications from PlantCare are working.",
+                    },
+                )
+                accepted.append(device)
+            except Exception:
+                failed.append(device)
+        return {"accepted": accepted, "failed": failed}
+
     @application.get("/api/v1/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse(

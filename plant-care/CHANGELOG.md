@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.2
+
+- Add a test notification for selected Companion app devices with per-device
+  acceptance and failure results, without changing saved recipients.
+- Clarify that saved recipients apply to new care alerts and provide guidance
+  when Home Assistant accepts a test but the device does not display it.
+
 ## 0.13.1
 
 - Place “Manage all plants” below the dashboard heading instead of squeezing it
