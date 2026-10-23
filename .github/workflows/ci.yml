@@ -71,4 +71,19 @@ jobs:
           context: plant-care
           platforms: linux/${{ matrix.arch }}
           push: false
+          load: true
           tags: plant-care:${{ matrix.arch }}
+      - name: Report production image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: plant-care:${{ matrix.arch }}
+          format: table
+          exit-code: '0'
+      - name: Block fixable high and critical image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: plant-care:${{ matrix.arch }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
