@@ -40,7 +40,10 @@ def _normalize_photo(data: bytes, *, max_dimension: int, quality: int) -> bytes:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
-            with Image.open(BytesIO(data)) as source:
+            # MPO is recognized by the JPEG opener, not a separate decoder.
+            with Image.open(
+                BytesIO(data), formats=["JPEG", "HEIF", "AVIF", "PNG", "WEBP"]
+            ) as source:
                 if source.format not in ALLOWED_FORMATS:
                     raise InvalidPhotoError("Use a JPEG, PNG, WebP, HEIC, HEIF, or AVIF photo.")
                 source.load()

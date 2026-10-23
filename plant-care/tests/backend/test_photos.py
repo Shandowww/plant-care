@@ -29,5 +29,5 @@ def test_gallery_formats_normalize_primary_still_without_metadata(image_format, 
 def test_unsupported_decodable_format_still_rejected():
     source = BytesIO()
     Image.new("RGB", (32, 32)).save(source, format="BMP")
-    with pytest.raises(InvalidPhotoError, match="Use a JPEG"):
+    with pytest.raises(InvalidPhotoError, match="not a valid photo"):
         prepare_photo_for_analysis(source.getvalue())

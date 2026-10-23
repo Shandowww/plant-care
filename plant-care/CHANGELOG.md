@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.3
+
+- Update multipart, HTTP client and image libraries for published security fixes.
+- Limit photo decoding to supported JPEG/MPO, HEIF/AVIF, PNG and WebP formats.
+- Patch container operating-system libraries and remove unused Python installer bundles.
+- Update the frontend build runtime and add daily dependency and image security checks.
+
 ## 0.13.2
 
 - Add a test notification for selected Companion app devices with per-device
