@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * *"
 
 permissions:
   contents: read
@@ -23,6 +25,11 @@ jobs:
       - run: ruff check plant-care/app/backend plant-care/tests
       - run: mypy plant-care/app/backend
       - run: pytest plant-care/tests/backend --cov=plantcare --cov-report=term-missing
+      - name: Audit resolved production Python dependencies
+        run: |
+          python -m venv /tmp/plantcare-audit
+          /tmp/plantcare-audit/bin/pip install ./plant-care pip-audit==2.10.1
+          /tmp/plantcare-audit/bin/pip-audit
 
   frontend:
     runs-on: ubuntu-latest

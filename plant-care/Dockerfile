@@ -1,6 +1,6 @@
 ARG BUILD_ARCH=amd64
 
-FROM node:22.18.0-alpine3.22 AS frontend-build
+FROM node:22.23.4-alpine3.22 AS frontend-build
 WORKDIR /build/frontend
 COPY app/frontend/package.json app/frontend/package-lock.json ./
 RUN npm ci
