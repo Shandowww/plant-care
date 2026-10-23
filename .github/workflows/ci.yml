@@ -54,6 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64, aarch64]
     steps:

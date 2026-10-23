@@ -20,8 +20,13 @@ FROM python:3.14-alpine3.22
 ARG BUILD_ARCH
 ARG BUILD_VERSION=0.13.2
 
-RUN apk add --no-cache jq nginx supervisor tzdata
+RUN apk upgrade --no-cache && apk add --no-cache jq nginx supervisor tzdata
 COPY --from=backend-build /opt/venv /opt/venv
+# Installers and their vendored libraries are build tools, not runtime dependencies.
+RUN rm -rf /usr/local/lib/python3.14/site-packages/pip* \
+    /usr/local/lib/python3.14/ensurepip \
+    /opt/venv/lib/python3.14/site-packages/pip* \
+    && rm -f /usr/local/bin/pip* /opt/venv/bin/pip*
 COPY --from=frontend-build /build/frontend/dist /app/frontend
 COPY app/backend /app/app/backend
 COPY app/migrations /app/app/migrations
