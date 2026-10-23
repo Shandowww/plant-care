@@ -1,6 +1,6 @@
 ARG BUILD_ARCH=amd64
 
-FROM node:22.23.4-bookworm-slim AS frontend-build
+FROM node:26.11.1-bookworm-slim AS frontend-build
 WORKDIR /build/frontend
 COPY app/frontend/package.json app/frontend/package-lock.json ./
 RUN npm ci
