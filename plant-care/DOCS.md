@@ -315,6 +315,8 @@ using the Supervisor token already injected into the app; no webhook, long-lived
 access token, or Telegram setup is required. The notification contains a link
 that opens PlantCare directly on the affected plant card. Recovery completes the
 matching monitoring-managed action and dismisses its notification automatically.
+If the Supervisor cannot provide the plant's navigation link, the alert still
+sends without a link so that a temporary link lookup failure cannot block delivery.
 Battery levels of 10% or higher are normal and clear existing battery alerts on
 the next sensor sync. Delivery can be disabled in the same app configuration screen.
 

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import plantcare.home_assistant as ha_module
 import pytest
 from plantcare.home_assistant import HomeAssistantClient
@@ -217,3 +219,96 @@ def test_selecting_device_does_not_replay_existing_panel_alert(tmp_path):
         client.post("/api/v1/home-assistant/sync")
         assert sink.sent == []
         assert len(sink.created) == 1
+
+
+def test_real_alert_reaches_saved_phone_when_ingress_link_lookup_fails(tmp_path):
+    class UnavailableIngressNotifier(MobileNotifier):
+        async def ingress_url(self):
+            raise RuntimeError("Supervisor ingress info unavailable")
+
+    source, sink = FakeHomeAssistant(), UnavailableIngressNotifier()
+    with production_client(tmp_path, source, sink) as client:
+        client.post(
+            "/api/v1/notifications/preferences",
+            json={"devices": ["mobile_app_phone"], "persistent": True},
+        )
+        add_plant(client)
+        entity = source.entities.pop(0)
+        for _ in range(2):
+            assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        assert len(sink.created) == 1
+        assert len(sink.sent) == 1
+        service, payload = sink.sent[0]
+        assert service == "mobile_app_phone"
+        assert payload["title"].endswith("sensor unavailable")
+        assert payload["message"]
+        assert "url" not in payload["data"]
+        assert "clickAction" not in payload["data"]
+        assert "None" not in sink.created[0]["message"]
+        source.entities.append(entity)
+        client.post("/api/v1/home-assistant/sync")
+        assert sink.sent[1][1]["message"] == "clear_notification"
+        assert len(sink.dismissed) == 1
+
+
+@pytest.mark.parametrize("kind", ["low_moisture", "prolonged_wet"])
+@pytest.mark.parametrize("link_available", [True, False])
+def test_confirmed_care_events_push_once_to_saved_phone(tmp_path, kind, link_available):
+    class Notifier(MobileNotifier):
+        async def ingress_url(self):
+            if not link_available:
+                raise RuntimeError("Supervisor unavailable")
+            return await super().ingress_url()
+
+    source, sink = FakeHomeAssistant(), Notifier()
+    now = datetime.now(UTC)
+    readings = (
+        [(10 / 60, "2"), (5 / 60, "3"), (0, "1")]
+        if kind == "low_moisture"
+        else [(26, "90"), (25, "91"), (0, "92")]
+    )
+
+    def reading(hours, value):
+        observed_at = now - timedelta(hours=hours)
+        source.entities[0] = source.entities[0].model_copy(
+            update={
+                "state": value,
+                "last_changed": observed_at,
+                "last_updated": observed_at,
+            }
+        )
+
+    reading(*readings[0])
+    with production_client(tmp_path, source, sink) as client:
+        assert (
+            client.post(
+                "/api/v1/notifications/preferences",
+                json={
+                    "devices": ["mobile_app_phone"],
+                    "persistent": True,
+                },
+            ).status_code
+            == 200
+        )
+        plant_id = add_plant(client)
+        assert (
+            client.patch(
+                f"/api/v1/plants/{plant_id}",
+                json={
+                    "wet_duration_hours_override": 24,
+                },
+            ).status_code
+            == 200
+        )
+        for hours, value in readings[1:]:
+            reading(hours, value)
+            assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        actions = client.get("/api/v1/actions").json()["actions"]
+        assert any(action["type"] == kind for action in actions)
+        assert len(sink.sent) == 1
+        assert sink.sent[0][0] == "mobile_app_phone"
+        assert sink.sent[0][1]["title"] == (
+            "PlantCare: water Fern" if kind == "low_moisture" else "PlantCare: Fern remains wet"
+        )
+        assert client.post("/api/v1/home-assistant/sync").status_code == 200
+        assert len(sink.sent) == 1

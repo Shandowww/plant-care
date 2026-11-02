@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.3
+
+- Send care notifications even when the Supervisor cannot provide the plant link.
+  A failed link lookup no longer blocks mobile or Home Assistant panel alerts.
+- Verify automatic watering and slow-drying mobile alerts, deduplication, and
+  recovery clearing when the navigation link is unavailable.
+
 ## 0.13.2
 
 - Add a test notification for selected Companion app devices with per-device

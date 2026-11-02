@@ -53,24 +53,34 @@ async def deliver(
                         {"message": "clear_notification", "data": {"tag": event.notification_id}},
                     )
             else:
-                url = f"{await sink.ingress_url()}#plants/{quote(event.plant_id, safe='')}"
+                # An optional navigation link must not block the care alert.
+                # The Supervisor can temporarily fail even while Core's notify
+                # services remain available.
+                try:
+                    url = f"{await sink.ingress_url()}#plants/{quote(event.plant_id, safe='')}"
+                except Exception:
+                    url = None
                 title = event.title or "PlantCare care reminder"
+                message = event.message or title
                 if target == "persistent":
                     await sink.create_persistent_notification(
                         notification_id=event.notification_id,
                         title=title,
-                        message=f"{event.message}\n\n[Open this plant in PlantCare]({url})",
+                        message=(
+                            f"{message}\n\n[Open this plant in PlantCare]({url})"
+                            if url
+                            else message
+                        ),
                     )
                 else:
                     await sink.notify_device(
                         target,
                         {
                             "title": title,
-                            "message": event.message or title,
+                            "message": message,
                             "data": {
                                 "tag": event.notification_id,
-                                "url": url,
-                                "clickAction": url,
+                                **({"url": url, "clickAction": url} if url else {}),
                                 "alert_once": True,
                             },
                         },
