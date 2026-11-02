@@ -11,7 +11,7 @@ dependencies = [
   "aiosqlite==0.21.0",
   "alembic==1.19.1",
   "argon2-cffi==25.1.0",
-  "fastapi==0.140.5",
+  "fastapi==0.156.4",
   "greenlet==3.5.5",
   "httpx2==2.16.0",
   "itsdangerous==2.2.0",
