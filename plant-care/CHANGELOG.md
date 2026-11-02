@@ -1,11 +1,18 @@
 # Changelog
 
-## 0.13.3
+## 0.13.4
 
 - Send care notifications even when the Supervisor cannot provide the plant link.
   A failed link lookup no longer blocks mobile or Home Assistant panel alerts.
 - Verify automatic watering and slow-drying mobile alerts, deduplication, and
   recovery clearing when the navigation link is unavailable.
+
+## 0.13.3
+
+- Update multipart, HTTP client and image libraries for published security fixes.
+- Limit photo decoding to supported JPEG/MPO, HEIF/AVIF, PNG and WebP formats.
+- Patch container operating-system libraries and remove unused Python installer bundles.
+- Update the frontend build runtime and add daily dependency and image security checks.
 
 ## 0.13.2
 

@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "41 6 * * *"
 
 permissions:
   contents: read
@@ -23,6 +25,11 @@ jobs:
       - run: ruff check plant-care/app/backend plant-care/tests
       - run: mypy plant-care/app/backend
       - run: pytest plant-care/tests/backend --cov=plantcare --cov-report=term-missing
+      - name: Audit resolved production Python dependencies
+        run: |
+          python -m venv /tmp/plantcare-audit
+          /tmp/plantcare-audit/bin/pip install ./plant-care pip-audit==2.10.1
+          /tmp/plantcare-audit/bin/pip-audit
 
   frontend:
     runs-on: ubuntu-latest
@@ -47,6 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64, aarch64]
     steps:
@@ -64,4 +72,47 @@ jobs:
           context: plant-care
           platforms: linux/${{ matrix.arch }}
           push: false
+          load: true
           tags: plant-care:${{ matrix.arch }}
+      - name: Check production startup and LAN authentication
+        run: |
+          docker run -d --name plantcare-smoke --network none --tmpfs /data plant-care:${{ matrix.arch }}
+          trap 'docker rm -f plantcare-smoke >/dev/null' EXIT
+          docker exec -i plantcare-smoke /opt/venv/bin/python - <<'PYTEST'
+          import json, time, urllib.request, urllib.error
+          base = "http://127.0.0.1:8098"
+          for attempt in range(60):
+              try:
+                  with urllib.request.urlopen(base + "/api/v1/health", timeout=2) as response:
+                      health = json.load(response)
+                  assert health["status"] == "ready" and health["simulator"] is False
+                  break
+              except (OSError, AssertionError):
+                  if attempt == 59:
+                      raise
+                  time.sleep(1)
+          with urllib.request.urlopen(base + "/", timeout=3) as response:
+              assert response.status == 200
+          request = urllib.request.Request(base + "/api/v1/auth/session", headers={"X-PlantCare-Surface": "ingress", "X-Remote-User-Name": "forged"})
+          try:
+              urllib.request.urlopen(request, timeout=3)
+          except urllib.error.HTTPError as error:
+              assert error.code == 401
+          else:
+              raise AssertionError("LAN request bypassed authentication")
+          print("Production startup, migrations, frontend and LAN header isolation passed")
+          PYTEST
+      - name: Report production image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: plant-care:${{ matrix.arch }}
+          format: table
+          exit-code: '0'
+      - name: Block fixable high and critical image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: plant-care:${{ matrix.arch }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
