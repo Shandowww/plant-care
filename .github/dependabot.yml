@@ -4,10 +4,25 @@ updates:
     directory: /plant-care
     schedule:
       interval: weekly
+    groups:
+      pytest-toolchain:
+        patterns:
+          - "pytest"
+          - "pytest-*"
   - package-ecosystem: npm
     directory: /plant-care/app/frontend
     schedule:
       interval: weekly
+    groups:
+      lint-toolchain:
+        patterns:
+          - "@eslint/js"
+          - "eslint"
+          - "eslint-plugin-*"
+          - "typescript-eslint"
+    ignore:
+      - dependency-name: typescript
+        versions: [">=7"]
   - package-ecosystem: docker
     directory: /plant-care
     schedule:
